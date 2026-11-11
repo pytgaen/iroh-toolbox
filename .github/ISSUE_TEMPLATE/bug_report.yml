@@ -1,0 +1,30 @@
+name: Bug report
+description: Report an unexpected CLI, transfer or network behavior
+body:
+  - type: markdown
+    attributes:
+      value: "Mask tokens, tickets, private addresses and sensitive file paths."
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: "OS and output of iroh-toolbox --version"
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Connection path
+      options:
+        - Direct
+        - Relay
+        - Unknown or offline command
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: "Commands on each peer, expected behavior, observed behavior, and sanitized errors."
+    validations:
+      required: true

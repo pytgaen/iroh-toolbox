@@ -1,0 +1,15 @@
+name: Feature request
+description: Suggest an improvement with a concrete use case
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: "What are you trying to do, and what currently prevents it?"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: "Describe the command or behavior that would help."

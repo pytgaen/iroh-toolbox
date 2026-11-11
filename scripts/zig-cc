@@ -1,0 +1,3 @@
+#!/bin/sh
+# Host C compiler/linker for build scripts when no system cc is installed.
+exec zig cc "$@"

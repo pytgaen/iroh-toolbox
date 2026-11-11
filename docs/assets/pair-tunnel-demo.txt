@@ -1,0 +1,58 @@
+iroh-toolbox — pair once with a code, then reach a folder by name
+Recorded: 2026-11-10, Linux x86_64, with `mise run demo:record`
+
+Two Docker containers, nas and laptop, each on its own bridge network behind
+the host's NAT. The two networks cannot reach each other: the machines meet
+through iroh's public relays and n0's DNS, as two machines on the Internet
+would. Both leave through the same public IP address, so this shows the
+workflow over the Internet, not NAT traversal between two providers.
+
+Binary: iroh-toolbox v0.1.0 (commit a2b0304), x86_64-unknown-linux-musl release build
+SHA-256: 8fd928f428be438c732b73b2c0a88659311f6887b3ae7867e8353b95cb2ada7f
+Route measured after the recording (`ping connect peer:nas`):
+  seq=3 rtt=41.026ms QUIC route=relay carrier=WebSocket/TCP remote=relay:https://euc1-1.relay.n0.iroh.link./
+
+Each machine starts with a fresh identity. The code typed at laptop's
+`Code:` prompt is the one nas printed; the prompt does not echo it. The code
+is single-use and was consumed by this pairing.
+
+Terminal nas:
+nas ~ $ iroh-toolbox pair
+created this machine's identity in /home/demo/.config/iroh-toolbox
+This machine: nas
+Code: muster-stoning-supply-tassel-compactor-treason
+On the other machine (keep the code private):
+  iroh-toolbox pair code:
+  then type the code at the prompt (it stays out of the process list)
+waiting for the other machine (keep the code private)
+Your confirmation number: 777 537
+Read it aloud to the other person, and type the number they read to you.
+Their confirmation number (empty to cancel): 060 846
+Paired with laptop (machine a4jc…y6oy)
+nas ~ $ 
+
+nas ~ $ iroh-toolbox tunnel http serve ./site --allow laptop
+Serving to: laptop
+On the other machine, run:
+  iroh-toolbox tunnel http connect peer:nas
+Use the name this machine has in that machine's `iroh-toolbox peers` list if it differs.
+Files: /home/demo/site (read-only; dotfiles hidden; HTML, SVG and XML open without scripts)
+
+Terminal laptop:
+laptop ~ $ iroh-toolbox pair code:
+Code: 
+created this machine's identity in /home/demo/.config/iroh-toolbox
+This machine: laptop
+Your confirmation number: 060 846
+Read it aloud to the other person, and type the number they read to you.
+Their confirmation number (empty to cancel): 777 537
+Paired with nas (machine uzy7…rdpo)
+laptop ~ $ 
+
+laptop ~ $ iroh-toolbox tunnel http connect peer:nas
+Open http://127.0.0.1:8080/ (nas is contacted when the page loads)
+
+Second terminal on laptop, while `tunnel http connect` runs:
+laptop ~ $ curl http://127.0.0.1:8080/hello.txt
+hello from the nas
+laptop ~ $ 

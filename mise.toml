@@ -1,0 +1,123 @@
+[tools]
+rust = "1.99.1"
+uv = "0.12.17"
+zig = "0.15.2"
+"github:rust-cross/cargo-zigbuild" = "0.22.1"
+"cargo:cargo-deny" = "0.19.4"
+"cargo:cargo-outdated" = "0.19.0"
+
+[env]
+_.file = { path = ".env", redact = true }
+
+[tasks.build]
+description = "Build the native CLI"
+run = "cargo build --locked"
+
+[tasks.release]
+description = "Build the release binary"
+run = "cargo build --locked --release"
+
+[tasks.dist]
+description = "Package the native release binary, offline guide and SHA-256 (local -dev archive)"
+depends = ["release"]
+run = "python scripts/package-release.py"
+
+[tasks.release-local]
+description = "Cross-build Linux musl and Windows GNU binaries with Zig into dist/local"
+# Zig is also the host linker for build scripts, so no system cc is required.
+env = { CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "{{config_root}}/scripts/zig-cc", CC_x86_64_unknown_linux_gnu = "{{config_root}}/scripts/zig-cc" }
+run = [
+  "rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu",
+  "cargo zigbuild --locked --release --target x86_64-unknown-linux-musl",
+  "cargo zigbuild --locked --release --target x86_64-pc-windows-gnu",
+  "mkdir -p dist/local",
+  "cp target/x86_64-unknown-linux-musl/release/iroh-toolbox dist/local/iroh-toolbox-x86_64-unknown-linux-musl",
+  "cp target/x86_64-pc-windows-gnu/release/iroh-toolbox.exe dist/local/iroh-toolbox-x86_64-pc-windows-gnu.exe",
+  "dist/local/iroh-toolbox-x86_64-unknown-linux-musl --version",
+]
+
+[tasks."demo:record"]
+description = "Record the animated README demo with Docker and VHS, through iroh's public relays"
+depends = ["release-local"]
+run = "scripts/demo/record.sh"
+
+[tasks."dist:smoke"]
+description = "Require IROH_TEST_RELAY_BINARY; verify checksums and run code transfer and paired-tunnel scenarios using extracted archives outside the checkout"
+run = "python scripts/smoke-archive.py"
+
+[tasks."dist:install"]
+description = "Install the local archive with the release install script from a local release server"
+run = "python scripts/smoke-install.py"
+
+[tasks."lint:rust"]
+description = "Check Rust formatting and warnings without dependency-network checks"
+run = ["cargo fmt --all --check", "cargo clippy --locked --all-targets --all-features -- -D warnings"]
+
+[tasks."docs:check"]
+description = "Verify the generated CLI reference"
+depends = ["build"]
+run = "python scripts/generate-cli-reference.py --check"
+
+[tasks.test]
+description = "Run Rust tests"
+run = "cargo test --locked --all-features"
+
+[tasks."test:relay:install"]
+description = "Build the pinned official relay for local and CI validation"
+run = "cargo install iroh-relay --version 1.4.1 --locked --features server --debug --root target/test-relay"
+
+[tasks."test:relay"]
+description = "Require IROH_TEST_RELAY_BINARY and exercise the private relay (fails if missing)"
+run = "cargo test --locked --all-features --test native_cli official_private_relay_registration_ping_blobs_and_denials -- --ignored --exact --nocapture"
+
+[tasks.relay-check]
+description = "Check real relay registration using the local .env"
+run = "cargo run --locked -- relay check"
+
+[tasks."test:slots"]
+description = "Require IROH_TEST_RELAY_BINARY; exercise peer-restricted tunnels, pipes, ping and bench slots and address rotation through a local relay"
+run = "cargo test --locked --test native_cli slots:: -- --ignored --test-threads=1 --nocapture"
+
+[tasks."test:pairing"]
+description = "Require IROH_TEST_RELAY_BINARY; exercise code pairing, files, chat and 6-digit confirmation through a local relay"
+run = [
+  "cargo test --locked --test native_cli pairing:: -- --ignored --test-threads=1 --nocapture",
+  "cargo test --locked --bin iroh-toolbox -- --ignored --exact --nocapture pairing::session::tests::rendezvous_exposes_no_direct_address_to_a_stranger pairing::session::tests::joiner_exposes_no_direct_address_to_a_squatter",
+]
+
+[tasks."test:pty"]
+description = "Require IROH_TEST_RELAY_BINARY, Python and Unix PTYs; exercise the chat line editor and file replacement confirmation on real terminals"
+run = "cargo test --locked --test native_cli -- --ignored --exact --nocapture native_chat_line_editor_on_real_terminals native_code_prompt_hides_the_code_on_real_terminals native_machine_key_passphrase_on_real_terminals ports_replacement::native_replacement_confirmation_on_real_terminals"
+
+[tasks."test:public-relay"]
+description = "Explicitly contact public iroh relays; verify default registration, forced-relay ping and chat/files"
+run = "cargo test --locked --test native_cli public_relay:: -- --ignored --nocapture"
+
+[tasks.lint]
+description = "Check formatting, Rust warnings, advisories, licenses and sources"
+run = ["cargo fmt --all --check", "cargo clippy --locked --all-targets --all-features -- -D warnings", "cargo deny --locked --all-features check advisories licenses sources"]
+
+[tasks."lint:msrv"]
+description = "Check all targets with the minimum Rust version declared in Cargo.toml"
+run = '''python -c "import subprocess, sys, tomllib; from pathlib import Path; rust_min = tomllib.loads(Path('Cargo.toml').read_text())['package']['rust-version']; sys.exit(subprocess.call(['cargo', '+' + rust_min, 'check', '--locked', '--all-targets', '--all-features']))"'''
+
+[tasks.outdated]
+description = "Check for updates to direct dependencies"
+run = "cargo outdated --root-deps-only --exit-code 1"
+
+[tasks.audit]
+description = "Check dependency advisories, licenses and sources"
+run = "cargo deny --locked --all-features check advisories licenses sources"
+
+[tasks."docs:build"]
+description = "Build the Zensical documentation with strict validation"
+run = "uvx --with-requirements docs/requirements.txt zensical build --strict"
+
+[tasks."docs:serve"]
+description = "Preview the Zensical documentation locally"
+run = "uvx --with-requirements docs/requirements.txt zensical serve"
+
+[tasks."docs:cli"]
+description = "Regenerate the CLI reference from the compiled command"
+depends = ["build"]
+run = "python scripts/generate-cli-reference.py"

@@ -1,0 +1,177 @@
+iroh-toolbox - send a folder, pair your machines and reach a remote service
+
+This archive contains the executable, the project Apache-2.0 license, NOTICE.txt
+(attribution of the EFF word list used for codes) and BUILD.json with version,
+target, source commit, full version output, dirty-checkout status and
+executable SHA-256.
+A -dev archive is a local development build, not a published release.
+
+INSTALL
+Download the archive and the release's iroh-toolbox-<label>-sha256sums.txt
+manifest from the same release. Verify before extracting. On Linux, in the
+download directory:
+  sha256sum --check --ignore-missing iroh-toolbox-<label>-sha256sums.txt
+On Windows PowerShell:
+  Get-FileHash .\iroh-toolbox-<label>-<target>.zip -Algorithm SHA256
+Compare all 64 hexadecimal characters with the archive's entry in the manifest.
+A local -dev build comes with a .sha256 file next to its archive instead.
+Checksums detect changed downloads; obtain both files from a trusted source.
+
+Extract the archive. Put the executable in a directory on PATH. On Linux:
+  mkdir -p "$HOME/.local/bin"
+  install -m 755 ./iroh-toolbox "$HOME/.local/bin/iroh-toolbox"
+Add that directory to PATH if necessary. On Windows, put iroh-toolbox.exe in a
+chosen tools directory and add that directory to your user PATH, then reopen
+the terminal. No Rust or Python installation is needed to run the toolbox.
+  iroh-toolbox --version
+
+To install or update on another machine without downloading by hand, run the
+install script, which performs the same checks:
+  Linux:       curl -fsSL https://github.com/pytgaen/iroh-toolbox/releases/latest/download/install.sh | sh
+  PowerShell:  irm https://github.com/pytgaen/iroh-toolbox/releases/latest/download/install.ps1 | iex
+
+FIRST FOLDER (two machines, A and B)
+Both machines need the executable. Work in writable directories. Create a
+non-empty folder named my-folder on A containing a text file hello.txt.
+Public iroh relays are used by default; no private relay or token is required.
+  A: iroh-toolbox send ./my-folder
+Leave A running. It prints a one-use code of six words and a complete command
+for B. On B, type the complete code at the prompt (echo off, kept out of the
+process list):
+  B: iroh-toolbox receive code: --output ./received
+Each machine then shows its own 6-digit confirmation number and asks for the
+other's: read yours to the other person and type the number they read to you.
+Only the machine that types the code can download; there is no ticket mode.
+--no-verify on both machines skips the numbers (whoever uses the code first is
+then served); without a terminal, the numbers cannot be asked and --no-verify
+is required. (code:<six-words> also works, but other local users can read it
+while the command runs. Without a terminal, use that form with --no-verify.)
+On B, expect preparation/connection/transfer messages, then a final line
+starting with "received my-folder" and ending with "BLAKE3 verified". It shows
+the absolute path of the published folder, its size, file count and duration.
+Open received/my-folder/hello.txt and compare its contents with A's original.
+Only B confirms publication. A's connection-closure message is not a receipt.
+Existing names are listed and replaced only if you type yes; without a
+terminal they are refused. To keep them, use --output ./received-again.
+Chat works the same way: A runs iroh-toolbox chat serve, B runs
+iroh-toolbox chat connect code: (type the words at the prompt). The code admits
+one participant, the first to use it; both machines show a confirmation number
+and ask for the other's, as above (--no-verify on both skips it), then show
+"Chat ready; admission: code.". If the code reached someone else before use,
+stop A with Ctrl-C and run chat serve again for a new code.
+
+PAIR YOUR MACHINES (once)
+Tunnels and pipes reach only machines you paired; paired machines can also send
+files and chat without a code. Pairing needs a relay once (the public one by
+default) and an interactive terminal on both machines; the confirmation numbers
+are always exchanged. On A, here named nas,
+with B named laptop:
+  A: iroh-toolbox pair
+It prints a one-use code. On B, type the words at the prompt:
+  B: iroh-toolbox pair code:
+Once B has joined, each machine shows its own 6-digit confirmation number and
+asks for the other's: read yours to the other person and type the number they
+read to you (the numbers differ). A then reports, and B likewise with nas:
+  Paired with laptop (machine xxxx...xxxx)
+Pairing asks nothing else and starts no service. Each machine stores the other
+under a local name (A sees B under the name B announces, and conversely). List
+and change them at any time:
+  iroh-toolbox peers         (NAME, MACHINE, PAIRED)
+  iroh-toolbox peers rename OLD NEW
+  iroh-toolbox peers rm NAME
+  iroh-toolbox id            (this machine's name and short key)
+Names are local; removing B on A changes nothing on B. Each server names the
+machines it serves with --allow NAME (repeatable or comma-separated), or
+--allow all for every paired machine, read at each connection. Tunnels and
+pipes refuse to start without --allow; inboxes, shares and chats by name accept
+every paired machine unless --allow narrows them. peers rm refuses that
+machine's next connection to tunnels, pipes, inboxes, shares, chats and
+ping/bench servers started with --peers-only. Connections already open
+continue, and a chat code it already holds stays valid: restart that chat.
+
+FILES WITHOUT A CODE (A and B paired)
+B opens an inbox, until Ctrl-C (--once: one transfer, then exit):
+  B: iroh-toolbox receive --inbox --output ./received
+  A: iroh-toolbox send ./my-folder peer:laptop
+A ends with "laptop received my-folder: BLAKE3 verified and published". An
+inbox never replaces existing files. Or A offers, and B fetches:
+  A: iroh-toolbox send ./my-folder --peers-only
+  B: iroh-toolbox receive peer:nas --output ./received
+send exits after that reception; add --share to serve several machines until
+Ctrl-C. A chat without a code: iroh-toolbox chat serve --peers-only on A and
+iroh-toolbox chat connect peer:nas on B.
+
+FIRST SERVICE (A and B paired)
+On A, have a web service already running at http://127.0.0.1:3000 and check its
+page locally. Leave the service running, then in another terminal:
+  A: iroh-toolbox tunnel tcp serve --to 127.0.0.1:3000 --slot web --allow laptop
+A prints the machines it serves and the command for B. On B, use A's name as B
+stores it (see iroh-toolbox peers on B):
+  B: iroh-toolbox tunnel tcp connect peer:nas/web --bind 127.0.0.1:8080
+Open http://127.0.0.1:8080 on B. Expect the same page, then reload it.
+TCP listening confirms B's local port only. A reports a TCP service connection;
+the actual page response confirms application access. Keep all commands running.
+A refuses any machine that is not paired, or not listed by --allow.
+Pipes work the same way: iroh-toolbox pipe serve --slot backup --allow laptop
+on A and iroh-toolbox pipe connect peer:nas/backup on B. If the key is
+protected by a passphrase (id protect), it is asked on the terminal first, even
+when standard input is a pipe.
+
+BROWSE A FOLDER (A and B paired, no web server needed)
+  A: iroh-toolbox tunnel http serve ./my-folder --allow laptop
+  B: iroh-toolbox tunnel http connect peer:nas
+B prints the URL to open, http://127.0.0.1:8080/ by default. The folder is
+read-only, names starting with a dot stay hidden (--hidden serves them), and
+pages open without running their scripts. Add --site on A to serve a static
+site: index.html, 404.html and scripts.
+
+IF A CONNECTION FAILS
+Keep the matching command on A running. Run iroh-toolbox relay check to test
+the default public relay registration. Use --relay-only on both peers to force
+relayed traffic.
+Your own relay is optional. To use one, configure its URL and access token on
+both machines instead of the public defaults:
+  Linux: export IROH_TOOLBOX_RELAY="https://relay.example.com"
+         export IROH_TOOLBOX_TOKEN="your-token"
+  PowerShell: $env:IROH_TOOLBOX_RELAY = "https://relay.example.com"
+              $env:IROH_TOOLBOX_TOKEN = "your-token"
+  Both: iroh-toolbox relay check
+Suggested commands never transfer relay tokens. Authentication denial calls
+for a token accepted by the relay; a timeout alone does not prove a bad token.
+Without any relay, once paired, a tunnel, pipe, inbox, share or chat by name
+needs a known address:
+  A: iroh-toolbox --direct-only tunnel tcp serve --to 127.0.0.1:3000 --slot web --allow laptop --port 7777
+  B: iroh-toolbox --direct-only tunnel tcp connect peer:nas/web --addr <A-address>:7777
+A prints its direct addresses; open the UDP port in A's firewall. Codes and
+pairing always need a relay, and there is no local network discovery.
+If the TCP destination is unavailable, start the service on A, check --to and
+retry the page. If B's local port is occupied, use --bind 127.0.0.1:8081.
+
+LIMITS
+The relay token controls relay access, not access to your services. Tunnels,
+pipes, inboxes, shares and chats by name accept only paired machines, narrowed
+by each server's --allow. A chat code admits whoever uses it first;
+chat serve --allow NAME or --peers-only opens no code. ping and bench
+serve anyone who reaches them (ticket or slot), a removed peer included, unless
+started with --peers-only (paired machines) or --allow NAME; only id rotate
+--address stops a former peer on an open one. The identity file
+(identity, in the configuration directory) is a secret: anyone who copies it
+acts as this machine; after a leak run id rotate and pair again. Codes passed
+as arguments are visible in the process list; type them at the Code: prompt
+instead (on Windows the echo stays on). The spake2 crate has not been
+independently audited. Transfers use temporary
+disk space and require destination hard links (e.g. ext4 or NTFS). An
+interrupted receive resumes when the same command runs again while send runs;
+it pairs nothing again, so it asks for no confirmation number.
+Empty directories, timestamps and permissions are not preserved.
+Directory publication is not atomic as a whole. Ctrl+C cancels the command.
+Use --no-progress on send/receive to hide progress; --no-hints hides remote
+command suggestions. Errors and the receiver's final result remain visible.
+The code of send shows on stderr as Code: WORDS, and alone on stdout when
+stdout is redirected or with --no-hints; ping/bench tickets go to stdout in the
+same cases. Pipe payload
+stays on stdout and its diagnostics stay on stderr; do not merge the streams.
+Size options accept bytes, e.g. 67108864, or integer units, e.g. 64MiB or 1GiB.
+Binary KiB/MiB/GiB/TiB use 1024; decimal kB/MB/GB/TB use 1000. Case matters.
+
+Use iroh-toolbox --help or <command> --help for all options.

@@ -1,0 +1,60 @@
+[package]
+name = "iroh-toolbox"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "File transfers, chat, streams, TCP tunnels and diagnostics over iroh, with serverless code pairing"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+argon2 = { version = "0.6", features = ["zeroize"] }
+# Already in the dependency tree (iroh-blobs); hashes files at an inbox destination.
+blake3 = "1"
+chacha20poly1305 = "0.11"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
+curve25519-dalek = "5"
+getrandom = "0.4"
+hex = "0.4"
+hkdf = "0.13"
+hmac = "0.13"
+# Already in the dependency tree (iroh): `tunnel http serve` answers HTTP/1.1
+# on iroh streams, with no TCP listener on the serving machine.
+http-body-util = "0.1"
+httpdate = "1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+iroh = "=1.4.1"
+iroh-blobs = "=0.104.1"
+iroh-tickets = "1"
+n0-future = "0.3"
+percent-encoding = "2"
+reedline = { version = "0.53", features = ["external_printer"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+spake2 = "0.4"
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+# Already in the dependency tree (iroh); streams the files of `tunnel http serve`.
+tokio-util = { version = "0.7", features = ["io"] }
+toml = "1"
+# Already in the dependency tree (iroh). With the registry below, catches the relay
+# status that iroh only logs: another endpoint took a slot's relay registration.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
+url = "2"
+walkdir = "2"
+zeroize = { version = "1", features = ["serde"] }
+
+[target.'cfg(unix)'.dependencies]
+# Already in the dependency tree; geteuid checks who owns the peer book.
+libc = "0.2"
+
+[build-dependencies]
+toml = "1"
+
+[profile.release]
+lto = "thin"
+strip = true

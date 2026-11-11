@@ -1,0 +1,7 @@
+# Optional custom relay: copy to iroh.toml (gitignored), then set URL/token.
+# No file or token is required to use iroh's public relays by default.
+[relay]
+url = "https://relay.example.com"
+
+[access]
+shared_token = ["replace-with-your-relay-token"]

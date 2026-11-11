@@ -1,0 +1,93 @@
+[project]
+site_name = "iroh-toolbox"
+site_description = "Diagnose connections, chat, transfer files and forward TCP services over iroh."
+site_author = "pytgaen"
+site_url = "https://pytgaen.github.io/iroh-toolbox/"
+repo_name = "pytgaen/iroh-toolbox"
+repo_url = "https://github.com/pytgaen/iroh-toolbox"
+copyright = "Copyright &copy; 2026 pytgaen · Apache-2.0"
+docs_dir = "docs"
+site_dir = "site"
+extra_css = ["assets/stylesheets/extra.css"]
+exclude_docs = "/requirements.txt"
+nav = [
+  { "Home" = "index.md" },
+  { "Get started" = [
+    { "Installation" = "guides/installation.md" },
+    { "Quick start" = "guides/quick-start.md" },
+    { "Private relays" = "guides/private-relay.md" },
+  ] },
+  { "Guides" = [
+    { "File transfers" = "guides/files.md" },
+    { "Chat & file offers" = "guides/chat.md" },
+    { "Binary streams" = "guides/streams.md" },
+    { "Tunnels" = "guides/tunnels.md" },
+    { "Diagnostics & benchmarks" = "guides/diagnostics.md" },
+  ] },
+  { "Reference" = [
+    { "CLI commands" = "reference/cli.md" },
+    { "Configuration" = "reference/configuration.md" },
+    { "Connection paths" = "reference/connection-paths.md" },
+    { "Security model" = "reference/security.md" },
+    { "Code pairing protocol" = "reference/pairing-protocol.md" },
+    { "Machine pairing & peers" = "reference/peers.md" },
+    { "Machine identity & slots" = "reference/slots.md" },
+    { "Compatibility & limits" = "reference/compatibility.md" },
+    { "Troubleshooting" = "reference/troubleshooting.md" },
+    { "License" = "reference/license.md" },
+  ] },
+  { "Contributing" = [
+    { "Development & verification" = "maintainers/development.md" },
+    { "Contributing & releases" = "maintainers/contributing.md" },
+    { "Changelog" = "maintainers/changelog.md" },
+  ] },
+]
+
+[project.theme]
+variant = "modern"
+logo = "assets/mark.svg"
+favicon = "assets/mark.svg"
+features = [
+  "navigation.sections",
+  "navigation.top",
+  "content.code.copy",
+  "content.tabs.link",
+  "search.highlight",
+]
+
+[project.theme.font]
+text = "Inter"
+code = "JetBrains Mono"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+"pymdownx.details" = {}
+"pymdownx.superfences" = { custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+] }
+"pymdownx.highlight" = { anchor_linenums = true }
+"pymdownx.tabbed" = { alternate_style = true }
+"pymdownx.snippets" = { base_path = ["."], check_paths = true }
+
+[project.validation.links]
+not_found = "warn"
+anchors = "warn"
+unrecognized_links = "warn"

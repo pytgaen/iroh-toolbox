@@ -1,0 +1,10 @@
+iroh-toolbox
+Copyright 2026 pytgaen
+
+Licensed under the Apache License, Version 2.0 (see LICENSE.txt).
+
+This product includes the EFF Large Wordlist for Passphrases
+(src/eff_large_wordlist.txt), created by the Electronic Frontier Foundation,
+https://www.eff.org/dice, licensed under the Creative Commons Attribution 3.0
+United States license, https://creativecommons.org/licenses/by/3.0/us/.
+The list is used unmodified; four hyphenated entries are skipped at runtime.

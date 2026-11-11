@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 744 744" role="img" aria-labelledby="mark-title mark-desc">
+  <title id="mark-title">iroh-toolbox</title>
+  <desc id="mark-desc">Two interlocking routes, one mint and one amber, surround a closed ivory lock.</desc>
+  <defs>
+    <linearGradient id="mark-background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#102b34"/>
+      <stop offset="1" stop-color="#0b252e"/>
+    </linearGradient>
+    <linearGradient id="mark-mint" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#56ddc0"/>
+      <stop offset="1" stop-color="#76efd1"/>
+    </linearGradient>
+    <linearGradient id="mark-amber" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#f8c870"/>
+      <stop offset="1" stop-color="#ffd777"/>
+    </linearGradient>
+  </defs>
+  <rect width="744" height="744" rx="152" fill="url(#mark-background)"/>
+  <g transform="translate(-255 -98)">
+    <path fill="url(#mark-mint)" d="M543 195C558 187 575 187 590 196L674 242C691 251 689 271 674 280L610 315C599 321 591 319 581 314L574 310C568 306 562 305 555 309L451 368C439 374 433 385 433 399V507C433 522 437 532 450 539L522 578C531 583 539 579 548 574L718 513V550C718 563 708 574 693 584L571 656C554 674 539 677 521 668L366 584C342 571 330 554 330 529V352C330 326 343 310 366 297Z"/>
+    <path fill="url(#mark-amber)" d="M720 275C735 266 750 267 768 277L893 345C913 357 924 378 924 400V592C924 617 913 637 891 650L733 743C715 755 697 755 679 745L589 695C570 684 571 666 589 655L649 623C659 617 668 622 677 627L686 632C693 637 701 637 709 632L809 577C821 570 821 559 821 543V433C821 416 817 408 806 402L737 372C729 367 722 369 715 373L537 471V417C537 391 549 374 570 362Z"/>
+    <path fill="#f1faf8" d="M601 482V468C601 452 613 440 629 440S657 452 657 468V482H644V468C644 459 638 453 629 453S614 459 614 468V482Z"/>
+    <rect x="590" y="480" width="78" height="56" rx="8" fill="#f1faf8"/>
+  </g>
+</svg>

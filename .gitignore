@@ -1,0 +1,42 @@
+# Rust build output
+/target/
+
+# Release and documentation artifacts
+/dist/
+/site/
+/.cache/
+.zig-cache/
+
+# Local executables belong in release archives, not the source tree.
+/iroh-toolbox
+/iroh-toolbox.exe
+
+# Python tooling (release scripts and tests)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+iroh.toml
+mise.local.toml
+.mise.local.toml
+.aws/
+.codex/
+.claude/settings.local.json
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

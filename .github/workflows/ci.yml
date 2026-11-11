@@ -1,0 +1,285 @@
+name: CI
+
+# Manual only while the repository is private: every run costs Actions minutes.
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  toolchain:
+    name: Read Rust version
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.version.outputs.rust }}
+      uv: ${{ steps.version.outputs.uv }}
+      msrv: ${{ steps.version.outputs.msrv }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: version
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+          tools = tomllib.loads(Path("mise.toml").read_text())["tools"]
+          package = tomllib.loads(Path("Cargo.toml").read_text())["package"]
+          print("rust=" + tools["rust"])
+          print("uv=" + tools["uv"])
+          print("msrv=" + package["rust-version"])
+          print("version=" + package["version"])
+          PY
+
+  lint:
+    name: Lint
+    needs: toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: ${{ needs.toolchain.outputs.rust }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo fmt --all --check
+      - name: Verify release scripts
+        run: python -m unittest discover -s tests -p 'test_release_scripts.py'
+      - name: Check install script
+        run: |
+          # GitHub's runner image has shellcheck; act's image does not.
+          command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
+          shellcheck -s sh scripts/install.sh
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: toolchain
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runners cost 10x the minutes of a private repository: off
+        # until the project is stable or public.
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: ${{ needs.toolchain.outputs.rust }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo test --locked --all-features
+      - name: Install pinned official private relay
+        shell: bash
+        env:
+          TEST_RELAY_DIR: ${{ runner.temp }}/iroh-test-relay
+        run: cargo install iroh-relay --version 1.4.1 --locked --features server --debug --root "$TEST_RELAY_DIR"
+      - name: Verify private relay (required, no silent skip)
+        env:
+          IROH_TEST_RELAY_BINARY: ${{ runner.temp }}/iroh-test-relay/bin/iroh-relay${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo test --locked --all-features --test native_cli official_private_relay_registration_ping_blobs_and_denials -- --ignored --exact --nocapture
+      - name: Verify chat line editor, code prompt and file replacement confirmation on real terminals
+        if: runner.os == 'Linux'
+        env:
+          IROH_TEST_RELAY_BINARY: ${{ runner.temp }}/iroh-test-relay/bin/iroh-relay
+        run: cargo test --locked --test native_cli -- --ignored --exact --nocapture native_chat_line_editor_on_real_terminals native_code_prompt_hides_the_code_on_real_terminals native_machine_key_passphrase_on_real_terminals ports_replacement::native_replacement_confirmation_on_real_terminals
+      - name: Verify CLI reference
+        run: python scripts/generate-cli-reference.py --check
+      - name: Verify code pairing through the local relay (required)
+        env:
+          IROH_TEST_RELAY_BINARY: ${{ runner.temp }}/iroh-test-relay/bin/iroh-relay${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: |
+          cargo test --locked --test native_cli pairing:: -- --ignored --test-threads=1 --nocapture
+      - name: Verify the rendezvous exposes no direct address (Linux, needs a direct path)
+        if: runner.os == 'Linux'
+        env:
+          IROH_TEST_RELAY_BINARY: ${{ runner.temp }}/iroh-test-relay/bin/iroh-relay
+        run: cargo test --locked --bin iroh-toolbox -- --ignored --exact --nocapture pairing::session::tests::rendezvous_exposes_no_direct_address_to_a_stranger pairing::session::tests::joiner_exposes_no_direct_address_to_a_squatter
+      - name: Verify machine slots through the local relay (required)
+        env:
+          IROH_TEST_RELAY_BINARY: ${{ runner.temp }}/iroh-test-relay/bin/iroh-relay${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: |
+          cargo test --locked --test native_cli slots:: -- --ignored --test-threads=1 --nocapture
+
+  msrv:
+    # Stable name: the main branch ruleset requires this check by name.
+    name: Minimum Rust
+    needs: toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: ${{ needs.toolchain.outputs.msrv }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo check --locked --all-targets --all-features
+
+  security:
+    name: Advisories, licenses and sources
+    needs: toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check advisories licenses sources
+          arguments: --locked --all-features
+          rust-version: ${{ needs.toolchain.outputs.rust }}
+
+  docs:
+    name: Documentation
+    needs: toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ needs.toolchain.outputs.uv }}
+      - run: uvx --with-requirements docs/requirements.txt zensical build --strict
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !env.ACT }}
+        with:
+          name: documentation-site
+          path: site/
+          if-no-files-found: error
+          retention-days: 14
+
+      # act 0.2.89 cannot handle the v6/v7 artifact protocol yet.
+      - name: Store documentation with act
+        if: ${{ env.ACT }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: documentation-site
+          path: site/
+          if-no-files-found: error
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: [toolchain, lint, test, msrv, security, docs]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            cross: true
+            binary: iroh-toolbox
+            ext: tar.gz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            cross: false
+            binary: iroh-toolbox.exe
+            ext: zip
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUILD_TARGET: ${{ matrix.target }}
+      BINARY: ${{ matrix.binary }}
+      ASSET: iroh-toolbox-v${{ needs.toolchain.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: ${{ needs.toolchain.outputs.rust }}
+          targets: ${{ matrix.target }}
+      # No cache here: release archives are built from a clean state.
+      - name: Install Zig
+        if: matrix.cross
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.2
+      - name: Install cargo-zigbuild
+        if: matrix.cross
+        run: cargo install cargo-zigbuild --version 0.22.1 --locked
+      - name: Build Linux musl
+        if: matrix.cross
+        run: |
+          ulimit -n 65536
+          cargo zigbuild --locked --release --target "$BUILD_TARGET"
+      - name: Build native Windows
+        if: ${{ !matrix.cross }}
+        run: cargo build --locked --release --target "$BUILD_TARGET"
+      - name: Check release CLI
+        run: |
+          binary_path="target/$BUILD_TARGET/release/$BINARY"
+          "$binary_path" --version
+          "$binary_path" --version | grep -F 'spake2'
+          "$binary_path" --help
+          "$binary_path" ping serve --help
+          "$binary_path" bench serve --help
+          "$binary_path" pipe serve --help
+          "$binary_path" tunnel tcp serve --help
+      - name: Package executable, offline guide and provenance
+        run: python scripts/package-release.py --binary "target/$BUILD_TARGET/release/$BINARY" --target "$BUILD_TARGET" --label "v${{ needs.toolchain.outputs.version }}"
+      - name: Install pinned official private relay for the archive smoke check
+        env:
+          TEST_RELAY_DIR: ${{ runner.temp }}/iroh-test-relay
+        run: cargo install iroh-relay --version 1.4.1 --locked --features server --debug --root "$TEST_RELAY_DIR"
+      - name: Verify and exercise extracted archive
+        env:
+          IROH_TEST_RELAY_BINARY: ${{ runner.temp }}/iroh-test-relay/bin/iroh-relay${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: python scripts/smoke-archive.py "dist/$ASSET"
+      - name: Install with the release install script
+        if: runner.os != 'Windows'
+        run: python scripts/smoke-install.py "dist/$ASSET"
+      - name: Install with the release install script (Windows PowerShell and PowerShell 7)
+        if: runner.os == 'Windows'
+        run: |
+          python scripts/smoke-install.py "dist/$ASSET" --shell powershell --modify-path
+          python scripts/smoke-install.py "dist/$ASSET" --shell pwsh
+      - name: Upload binary artifact
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: binary-${{ matrix.target }}
+          path: |
+            dist/${{ env.ASSET }}
+            dist/${{ env.ASSET }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Store binary artifact with act
+        if: ${{ env.ACT }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: |
+            dist/${{ env.ASSET }}
+            dist/${{ env.ASSET }}.sha256
+          if-no-files-found: error

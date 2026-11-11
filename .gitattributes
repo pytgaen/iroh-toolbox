@@ -1,0 +1,3 @@
+# The install script runs through sh, which rejects CRLF line endings.
+scripts/install.sh text eol=lf
+scripts/verify-release-tag.sh text eol=lf
