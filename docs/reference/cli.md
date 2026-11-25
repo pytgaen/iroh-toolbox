@@ -79,6 +79,10 @@ Options:
           Deadline in seconds for the receiver to connect and finish once paired [default: 3600]
       --no-progress
           Hide periodic progress and transfer phases on stderr
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
   -h, --help
           Print help
 
@@ -133,6 +137,10 @@ Options:
           Replace existing regular files without asking; preserve unrelated files in existing directories
       --no-replace
           Refuse an existing destination instead of asking before replacing or merging
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
   -h, --help
           Print help
 
@@ -202,6 +210,16 @@ Options:
           Hide file preparation and transfer progress on stderr
       --timestamps <WHEN>
           When messages show their time; default from IROH_TOOLBOX_TIMESTAMPS, else auto [possible values: auto, always, never]
+      --history
+          Keep the lines you type (↑/↓) across chats, in a private file; default from IROH_TOOLBOX_CHAT_HISTORY, else off
+      --no-history
+          Keep the lines you type in memory only, whatever IROH_TOOLBOX_CHAT_HISTORY says
+      --auto-cmd
+          Answer each file offer from a form: destination (default .), --force box (unticked), accept or refuse. Needs an interactive terminal
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
   -h, --help
           Print help
 
@@ -240,6 +258,16 @@ Options:
           Hide file preparation and transfer progress on stderr
       --timestamps <WHEN>
           When messages show their time; default from IROH_TOOLBOX_TIMESTAMPS, else auto [possible values: auto, always, never]
+      --history
+          Keep the lines you type (↑/↓) across chats, in a private file; default from IROH_TOOLBOX_CHAT_HISTORY, else off
+      --no-history
+          Keep the lines you type in memory only, whatever IROH_TOOLBOX_CHAT_HISTORY says
+      --auto-cmd
+          Answer each file offer from a form: destination (default .), --force box (unticked), accept or refuse. Needs an interactive terminal
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
   -h, --help
           Print help
 
@@ -264,7 +292,9 @@ Options:
       --recv-only      Only receive: close the outgoing direction at once instead of reading stdin
       --slot [<NAME>]  Slot to serve; paired machines reach it with peer:NAME/SLOT [default: pipe]
       --allow <NAME>   Paired machines to serve (repeatable or comma-separated), or `all` for every paired machine. Required
+      --stats          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
       --port <PORT>    Fix the UDP port of the server endpoint (firewall rules, --direct-only)
+      --stats-json     Like --stats, as one JSON object per line on stderr
   -h, --help           Print help
 
 Global options:
@@ -290,6 +320,8 @@ Arguments:
 Options:
       --addr <HOST:PORT>  Direct address HOST:PORT of the server, as printed by it; repeat for several. Required with --direct-only
       --recv-only         Only receive: close the outgoing direction at once instead of reading stdin
+      --stats             At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json        Like --stats, as one JSON object per line on stderr
   -h, --help              Print help
 
 Global options:
@@ -316,8 +348,12 @@ Options:
           Concurrent peer connections served; further connections are refused [default: 64]
       --slot [<NAME>]
           Slot to serve; paired machines reach it with peer:NAME/SLOT [default: tunnel]
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
       --allow <NAME>
           Paired machines to serve (repeatable or comma-separated), or `all` for every paired machine. Required
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
       --port <PORT>
           Fix the UDP port of the server endpoint (firewall rules, --direct-only)
   -h, --help
@@ -346,6 +382,8 @@ Arguments:
 Options:
       --addr <HOST:PORT>            Direct address HOST:PORT of the server, as printed by it; repeat for several. Required with --direct-only
       --bind <[SERVICE=]HOST:PORT>  Local HOST:PORT for the slot's sole or selected service, or SERVICE=HOST:PORT to move one service of the group (repeatable). Without it, each service listens on 127.0.0.1 at the port its server announces
+      --stats                       At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json                  Like --stats, as one JSON object per line on stderr
   -h, --help                        Print help
 
 Global options:
@@ -375,8 +413,12 @@ Options:
           Also serve files and folders whose name starts with a dot
       --max-connections <MAX_CONNECTIONS>
           Concurrent peer connections served; further connections are refused [default: 64]
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
       --slot [<NAME>]
           Slot to serve; paired machines reach it with peer:NAME/SLOT [default: http]
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
       --allow <NAME>
           Paired machines to serve (repeatable or comma-separated), or `all` for every paired machine. Required
       --port <PORT>
@@ -407,6 +449,8 @@ Arguments:
 Options:
       --addr <HOST:PORT>  Direct address HOST:PORT of the server, as printed by it; repeat for several. Required with --direct-only
       --bind <BIND>       Local HOST:PORT that the browser opens [default: 127.0.0.1:8080]
+      --stats             At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json        Like --stats, as one JSON object per line on stderr
   -h, --help              Print help
 
 Global options:
@@ -454,8 +498,12 @@ Options:
           Serve a slot that paired machines reach with peer:NAME/SLOT, with no ticket; default name: the command
       --peers-only
           Serve only paired machines (any in the peer book; measurements only). Implies a slot
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
       --allow <NAME>
           With --peers-only, narrow to these paired machines (repeatable or comma-separated), or `all`; implies --peers-only
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
       --port <PORT>
           Fix the UDP port of the server endpoint (firewall rules, --direct-only)
   -h, --help
@@ -485,7 +533,9 @@ Options:
       --addr <HOST:PORT>     Direct address HOST:PORT of the server, as printed by it; repeat for several. Required with --direct-only
       --count <COUNT>        Number of pings [default: 5]
       --interval <INTERVAL>  Seconds between pings [default: 1]
+      --stats                At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
       --json                 Print the results as JSON
+      --stats-json           Like --stats, as one JSON object per line on stderr
   -h, --help                 Print help
 
 Global options:
@@ -512,8 +562,12 @@ Options:
           Deadline in seconds for each measurement [default: 60]
       --no-progress
           Hide periodic progress on stderr
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
       --slot [<NAME>]
           Serve a slot that paired machines reach with peer:NAME/SLOT, with no ticket; default name: the command
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
       --peers-only
           Serve only paired machines (any in the peer book; measurements only). Implies a slot
       --allow <NAME>
@@ -550,6 +604,10 @@ Options:
           Per-direction size: bytes or integer B, kB, MB, GB, TB, KiB, MiB, GiB, TiB [default: 64MiB]
       --direction <DIRECTION>
           Direction to measure [default: both] [possible values: upload, download, both]
+      --stats
+          At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection
+      --stats-json
+          Like --stats, as one JSON object per line on stderr
       --transfer-timeout <TRANSFER_TIMEOUT>
           Deadline in seconds for each direction [default: 60]
       --json

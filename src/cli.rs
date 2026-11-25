@@ -87,6 +87,8 @@ pub enum Command {
         /// Hide periodic progress and transfer phases on stderr.
         #[arg(long)]
         no_progress: bool,
+        #[command(flatten)]
+        stats: StatsOptions,
     },
     /// Receive files with the code printed by `send`, or as an inbox for paired machines; verify BLAKE3 integrity.
     Receive {
@@ -135,6 +137,8 @@ pub enum Command {
         hidden: bool,
         #[command(flatten)]
         replacement: ReplacementOptions,
+        #[command(flatten)]
+        stats: StatsOptions,
     },
     /// Open a private two-person chat with /send and /receive: `chat serve` opens it, `chat connect` joins.
     #[command(arg_required_else_help = true, args_conflicts_with_subcommands = true)]
@@ -152,11 +156,15 @@ pub enum Command {
     Pipe {
         #[command(subcommand)]
         command: PipeCommand,
+        #[command(flatten)]
+        stats: StatsOptions,
     },
     /// Forward TCP services, or serve a folder over HTTP, through iroh.
     Tunnel {
         #[command(subcommand)]
         command: TunnelCommand,
+        #[command(flatten)]
+        stats: StatsOptions,
     },
     /// Verify registration with a public relay or the selected custom relay.
     Relay {
@@ -167,11 +175,15 @@ pub enum Command {
     Ping {
         #[command(subcommand)]
         command: PingCommand,
+        #[command(flatten)]
+        stats: StatsOptions,
     },
     /// Measure application throughput.
     Bench {
         #[command(subcommand)]
         command: BenchCommand,
+        #[command(flatten)]
+        stats: StatsOptions,
     },
     /// Inspect endpoint or blob tickets offline.
     Ticket {
@@ -336,6 +348,40 @@ pub struct ChatOptions {
     /// When messages show their time; default from IROH_TOOLBOX_TIMESTAMPS, else auto.
     #[arg(long, value_enum, value_name = "WHEN")]
     pub timestamps: Option<Timestamps>,
+    /// Keep the lines you type (↑/↓) across chats, in a private file; default from IROH_TOOLBOX_CHAT_HISTORY, else off.
+    #[arg(long, overrides_with = "no_history")]
+    pub history: bool,
+    /// Keep the lines you type in memory only, whatever IROH_TOOLBOX_CHAT_HISTORY says.
+    #[arg(long, overrides_with = "history")]
+    pub no_history: bool,
+    /// Answer each file offer from a form: destination (default .), --force box (unticked), accept or refuse. Needs an interactive terminal.
+    #[arg(long)]
+    pub auto_cmd: bool,
+    #[command(flatten)]
+    pub stats: StatsOptions,
+}
+
+/// `--stats` and `--stats-json`, on the commands that connect to a peer.
+#[derive(Args, Clone, Copy, Default)]
+pub struct StatsOptions {
+    /// At the end, show on stderr the bytes exchanged on the wire, direct or through a relay, the route, packet loss and route changes; servers and tunnels add a line per closed connection.
+    #[arg(long, global = true, conflicts_with = "stats_json")]
+    pub stats: bool,
+    /// Like --stats, as one JSON object per line on stderr.
+    #[arg(long, global = true)]
+    pub stats_json: bool,
+}
+
+impl StatsOptions {
+    pub fn format(&self) -> Option<crate::stats::Format> {
+        if self.stats_json {
+            Some(crate::stats::Format::Json)
+        } else if self.stats {
+            Some(crate::stats::Format::Text)
+        } else {
+            None
+        }
+    }
 }
 
 /// When chat messages show the time: `auto` in an interactive terminal only.
@@ -867,6 +913,7 @@ mod tests {
                         port,
                         recv_only,
                     },
+                ..
             } => (slot, allow, port, recv_only),
             _ => unreachable!(),
         };
@@ -906,6 +953,7 @@ mod tests {
                                 slot, site, hidden, ..
                             },
                     },
+                ..
             } => (slot, site, hidden),
             _ => unreachable!(),
         };
@@ -917,10 +965,52 @@ mod tests {
         let ping = |args: &[&str]| match Cli::try_parse_from(args).unwrap().command {
             Command::Ping {
                 command: PingCommand::Serve { slot, .. },
+                ..
             } => slot,
             _ => unreachable!(),
         };
         assert_eq!(ping(&["tool", "ping", "serve"]), None);
+        // --stats is given anywhere after the command that connects.
+        let stats = |args: &[&str]| {
+            let cli = Cli::try_parse_from(args).unwrap();
+            match cli.command {
+                Command::Tunnel { stats, .. }
+                | Command::Ping { stats, .. }
+                | Command::Send { stats, .. } => stats.format(),
+                Command::Chat {
+                    command: Some(ChatCommand::Connect(options)),
+                    ..
+                } => options.session.stats.format(),
+                _ => unreachable!(),
+            }
+        };
+        use crate::stats::Format;
+        assert_eq!(
+            stats(&["tool", "tunnel", "tcp", "connect", "peer:nas", "--stats"]),
+            Some(Format::Text)
+        );
+        assert_eq!(
+            stats(&["tool", "ping", "--stats-json", "serve"]),
+            Some(Format::Json)
+        );
+        assert_eq!(
+            stats(&["tool", "send", "file", "--stats"]),
+            Some(Format::Text)
+        );
+        assert_eq!(
+            stats(&["tool", "chat", "connect", "code:", "--stats-json"]),
+            Some(Format::Json)
+        );
+        assert_eq!(stats(&["tool", "ping", "serve"]), None);
+        for args in [
+            &["tool", "ping", "serve", "--stats", "--stats-json"][..],
+            &["tool", "id", "--stats"],
+            &["tool", "peers", "--stats"],
+            &["tool", "pair", "--stats"],
+            &["tool", "relay", "check", "--stats"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
+        }
         assert_eq!(
             ping(&["tool", "ping", "serve", "--slot"]),
             Some(String::new())

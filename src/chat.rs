@@ -19,9 +19,9 @@ use iroh::{
 };
 use iroh_blobs::{BlobFormat, ticket::BlobTicket};
 use reedline::{
-    ColumnarMenu, Completer, CompletionResult, Emacs, ExternalPrinter, FileBackedHistory, KeyCode,
-    KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch, Reedline,
-    ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion, default_emacs_keybindings,
+    ColumnarMenu, Completer, CompletionResult, Emacs, FileBackedHistory, KeyCode, KeyModifiers,
+    MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch, Reedline, ReedlineEvent,
+    ReedlineMenu, Signal, Span, Suggestion, default_emacs_keybindings,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -43,6 +43,8 @@ use crate::{
     target,
 };
 
+mod offer_form;
+
 const ALPN: &[u8] = b"iroh-toolbox/chat/1";
 const FRAME_LIMIT: usize = 64 * 1024;
 const TEXT_LIMIT: usize = 4096;
@@ -55,7 +57,7 @@ const WRITE_GRACE: Duration = Duration::from_secs(3);
 const UNACKED_LIMIT: usize = 256;
 /// Close code of a connection abandoned for a new one; the chat continues.
 const RECONNECTING: u32 = 3;
-const COMMANDS: &str = "/send PATH, /cancel, /receive [--force|--no-replace] [--hidden] DESTINATION, /confirm, /reject, /status, /help, /quit. One pending file offer per direction.";
+const COMMANDS: &str = "/send PATH, /cancel, /receive [--force|--no-replace] [--hidden] DESTINATION, /confirm, /reject, /status, /stats, /help, /quit. One pending file offer per direction.";
 const PROMPT: &str = "you> ";
 
 /// Ctrl+C read by the interactive line editor; the process exits with status 130.
@@ -263,10 +265,7 @@ pub async fn serve(settings: &Settings, options: ChatServeOptions) -> Result<()>
     } = options;
     // --allow names the only machines admitted: no code path bypasses it.
     let peers_only = peers_only || !allow.is_empty();
-    let timestamps = timestamps_when(
-        options.timestamps,
-        std::env::var("IROH_TOOLBOX_TIMESTAMPS").ok(),
-    )?;
+    let terminal = Terminal::resolve(&options)?;
     let pairing = pairing::Options {
         pairing_timeout: options.pairing_timeout,
         no_verify: options.no_verify,
@@ -346,7 +345,7 @@ pub async fn serve(settings: &Settings, options: ChatServeOptions) -> Result<()>
                     admission: "code".into(),
                     name: None,
                 };
-                conversation(ep, linked, session, settings, &options, timestamps).await
+                conversation(ep, linked, session, settings, &options, &terminal).await
             }
             Admission::Peer {
                 conn,
@@ -380,7 +379,7 @@ pub async fn serve(settings: &Settings, options: ChatServeOptions) -> Result<()>
                     admission: format!("paired machine {}", admitted.name),
                     name: Some(admitted.name.to_string()),
                 };
-                conversation(slot_ep, linked, session, settings, &options, timestamps).await
+                conversation(slot_ep, linked, session, settings, &options, &terminal).await
             }
         }
     }
@@ -522,10 +521,7 @@ async fn join_peer(
     addrs: &[String],
     options: ChatOptions,
 ) -> Result<()> {
-    let timestamps = timestamps_when(
-        options.timestamps,
-        std::env::var("IROH_TOOLBOX_TIMESTAMPS").ok(),
-    )?;
+    let terminal = Terminal::resolve(&options)?;
     let destination = target::Destination::parse(target, addrs).await?;
     let remote = Arc::new(destination.target.remote(
         "chat connect",
@@ -582,7 +578,7 @@ async fn join_peer(
             admission: format!("paired machine {peer}"),
             name: Some(peer.to_string()),
         };
-        conversation(&ep, linked, session, settings, &options, timestamps).await
+        conversation(&ep, linked, session, settings, &options, &terminal).await
     }
     .await;
     ep.close().await;
@@ -609,10 +605,7 @@ pub fn without_role(target: Option<&str>, peers_only: bool) -> anyhow::Error {
 
 /// Joins the chat of a code.
 async fn join_by_code(settings: &Settings, code: String, options: ChatOptions) -> Result<()> {
-    let timestamps = timestamps_when(
-        options.timestamps,
-        std::env::var("IROH_TOOLBOX_TIMESTAMPS").ok(),
-    )?;
+    let terminal = Terminal::resolve(&options)?;
     let pairing = pairing::Options {
         pairing_timeout: options.pairing_timeout,
         no_verify: options.no_verify,
@@ -651,7 +644,7 @@ async fn join_by_code(settings: &Settings, code: String, options: ChatOptions) -
             admission: "code".into(),
             name: None,
         };
-        conversation(&ep, linked, session, settings, &options, timestamps).await
+        conversation(&ep, linked, session, settings, &options, &terminal).await
     }
     .await;
     ep.close().await;
@@ -687,6 +680,8 @@ struct Link {
     reader: AbortHandle,
     /// A write failed at this time; the reader or [`WRITE_GRACE`] concludes.
     broken: Option<(Instant, anyhow::Error)>,
+    /// Route changes already shown.
+    noticed: usize,
 }
 
 /// A connection whose chat handshake succeeded, ready to replace a lost one.
@@ -763,6 +758,10 @@ struct Conversation<'a> {
     unacked: VecDeque<(u64, String)>,
     /// Last text sequence received; resent duplicates are ignored.
     received: u64,
+    /// With `--auto-cmd`, opens a form for each incoming offer.
+    forms: Option<offer_form::Forms>,
+    /// The incoming offer whose form was opened.
+    form: Option<u64>,
 }
 
 /// How a conversation reconnects and accepts its participant's connections.
@@ -782,7 +781,7 @@ async fn conversation(
     session: Session,
     settings: &Settings,
     options: &ChatOptions,
-    timestamps: Timestamps,
+    terminal: &Terminal,
 ) -> Result<()> {
     let Session {
         redial,
@@ -793,12 +792,12 @@ async fn conversation(
     let peer = first.conn.remote_id();
     let (tx, mut rx) = mpsc::channel(16);
     let (confirmations, mut confirmation_requests) = mpsc::channel::<ConfirmationRequest>(1);
-    let timestamps = match timestamps {
+    let timestamps = match terminal.timestamps {
         Timestamps::Auto => interactive_terminal(),
         when => when == Timestamps::Always,
     };
     let color = interactive_terminal() && progress::color_wanted();
-    let mut input = Input::open(timestamps, color)?;
+    let mut input = Input::open(timestamps, color, terminal.history.as_deref())?;
     let _style = progress::style_chat(progress::ChatStyle { timestamps, color });
     let mut chat = Conversation {
         ep,
@@ -823,6 +822,8 @@ async fn conversation(
         sent: 0,
         unacked: VecDeque::new(),
         received: 0,
+        forms: input.forms().filter(|_| options.auto_cmd),
+        form: None,
     };
     chat.install(first.conn, first.send, first.recv);
     let tx = chat.tx.clone();
@@ -857,10 +858,12 @@ async fn conversation(
                 InputEvent::Line(line) => {
                     if line == "/quit" { chat.leave().await; break; }
                     if let Err(error) = chat.command(&line).await { alert!("{}", settings.redact(format!("{error:#}"))); }
+                    chat.close_form();
                 }
             },
             event = rx.recv() => {
                 if chat.event(event.context("chat event channel closed")?).await? { break; }
+                chat.close_form();
             }
             Some(request) = confirmation_requests.recv() => {
                 if let Some(offer) = chat.incoming.as_mut().filter(|offer| offer.id == request.id && offer.download.is_some()) {
@@ -878,7 +881,9 @@ async fn conversation(
                 }
             }
             _ = tick.tick() => {
+                chat.close_form();
                 input.refresh();
+                chat.notice_route();
                 if chat.lost.is_some_and(|lost| lost.elapsed() >= RECONNECT_WINDOW) {
                     chat.report_undelivered();
                     bail!("{} unreachable for {} s; chat ended", chat.who, RECONNECT_WINDOW.as_secs());
@@ -979,6 +984,7 @@ async fn accept_on_slot(
 impl Conversation<'_> {
     /// Reads the chat stream of a new connection, which becomes the current one.
     fn install(&mut self, conn: Connection, send: SendStream, mut recv: RecvStream) {
+        crate::stats::track(&conn);
         self.generation += 1;
         let generation = self.generation;
         let tx = self.tx.clone();
@@ -1010,6 +1016,7 @@ impl Conversation<'_> {
             generation,
             reader,
             broken: None,
+            noticed: 0,
         });
     }
 
@@ -1215,6 +1222,49 @@ impl Conversation<'_> {
         }
     }
 
+    /// Traffic of the chat and its file transfers since it started; the
+    /// route is the chat connection's.
+    fn stats(&self) {
+        let mut traffic = crate::stats::snapshot();
+        traffic.current = self
+            .link
+            .as_ref()
+            .and_then(|link| crate::stats::current(&link.conn));
+        let (header, lines) = traffic.lines();
+        note!("{header}");
+        for line in lines {
+            note!("{line}");
+        }
+    }
+
+    /// Tells when the chat connection switches between direct and relay.
+    fn notice_route(&mut self) {
+        let Some(link) = self.link.as_mut() else {
+            return;
+        };
+        let changes = crate::stats::changes(&link.conn);
+        for change in changes.iter().skip(link.noticed) {
+            note!("{}", crate::stats::change_notice(change));
+        }
+        link.noticed = changes.len();
+    }
+
+    /// Closes the `--auto-cmd` form once its offer is no longer waiting for
+    /// an answer: received, rejected, withdrawn, expired or lost.
+    fn close_form(&mut self) {
+        let Some(id) = self.form else { return };
+        let waiting = self
+            .incoming
+            .as_ref()
+            .is_some_and(|offer| offer.id == id && offer.requested.is_none());
+        if !waiting {
+            if let Some(forms) = &self.forms {
+                forms.close(id);
+            }
+            self.form = None;
+        }
+    }
+
     fn status(&self) {
         // Taken first: the first line printed would otherwise show it unlabeled.
         let transfer = progress::take_console_status();
@@ -1269,6 +1319,9 @@ impl Conversation<'_> {
 
     async fn command(&mut self, line: &str) -> Result<()> {
         ensure!(line.len() <= TEXT_LIMIT, "input is limited to 4096 bytes");
+        // Leading spaces keep a line out of the history file; they are part
+        // of neither the message nor the command, and a blank line sends nothing.
+        let line = line.trim_start();
         let (command, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
         match command {
             "/send" => {
@@ -1364,6 +1417,10 @@ impl Conversation<'_> {
             "/status" => {
                 ensure!(rest.trim().is_empty(), "usage: /status");
                 self.status();
+            }
+            "/stats" => {
+                ensure!(rest.trim().is_empty(), "usage: /stats");
+                self.stats();
             }
             "/help" => {
                 note!("Type a message or {COMMANDS}");
@@ -1504,6 +1561,7 @@ impl Conversation<'_> {
                     conn.close(1u32.into(), b"no accepted file offer");
                     return Ok(false);
                 };
+                crate::stats::track(&conn);
                 if conn.alpn() != iroh_blobs::ALPN || conn.remote_id() != self.peer {
                     conn.close(1u32.into(), b"unexpected chat service or identity");
                     return Ok(false);
@@ -1675,15 +1733,24 @@ impl Conversation<'_> {
                     );
                 } else {
                     let name = safe_text(&name);
+                    let answer = if self.forms.is_some() {
+                        ""
+                    } else {
+                        " Use /receive DESTINATION or /reject."
+                    };
                     self.tell(
                         Mark::Info,
                         format!(
-                            "{} offers {name} — {}, {}. Use /receive DESTINATION or /reject.",
+                            "{} offers {name} — {}, {}.{answer}",
                             self.subject(),
                             progress::size(bytes),
                             progress::file_count(files),
                         ),
                     );
+                    if let Some(forms) = &self.forms {
+                        forms.open(id);
+                        self.form = Some(id);
+                    }
                     self.incoming = Some(Incoming {
                         id,
                         name,
@@ -1862,6 +1929,121 @@ fn interactive_terminal() -> bool {
         && std::io::stderr().is_terminal()
 }
 
+/// How the chat uses the terminal, settled before any connection so a bad
+/// setting or an unusable history file fails before the peer waits.
+struct Terminal {
+    timestamps: Timestamps,
+    /// The history file, when typed lines are kept across chats.
+    history: Option<PathBuf>,
+}
+
+impl Terminal {
+    fn resolve(options: &ChatOptions) -> Result<Self> {
+        ensure!(
+            !options.auto_cmd || interactive_terminal(),
+            "--auto-cmd needs an interactive terminal: stdin, stdout and stderr on a terminal"
+        );
+        let timestamps = timestamps_when(
+            options.timestamps,
+            std::env::var("IROH_TOOLBOX_TIMESTAMPS").ok(),
+        )?;
+        let flag = match (options.history, options.no_history) {
+            (true, _) => Some(true),
+            (_, true) => Some(false),
+            _ => None,
+        };
+        let wanted = history_wanted(flag, std::env::var("IROH_TOOLBOX_CHAT_HISTORY").ok())?;
+        // Plain line input (pipes, scripts) has no history to keep.
+        let history = if wanted && interactive_terminal() {
+            Some(history_file(&crate::identity::home()?)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            timestamps,
+            history,
+        })
+    }
+}
+
+/// `--history`/`--no-history`, else `IROH_TOOLBOX_CHAT_HISTORY`, else off.
+fn history_wanted(flag: Option<bool>, env: Option<String>) -> Result<bool> {
+    if let Some(wanted) = flag {
+        return Ok(wanted);
+    }
+    match env.as_deref().map(str::trim) {
+        None | Some("") => Ok(false),
+        Some(value) if value.eq_ignore_ascii_case("on") => Ok(true),
+        Some(value) if value.eq_ignore_ascii_case("off") => Ok(false),
+        Some(_) => bail!("IROH_TOOLBOX_CHAT_HISTORY must be on or off"),
+    }
+}
+
+const HISTORY_FILE: &str = "chat_history";
+/// Lines kept, in memory and in the history file.
+const HISTORY_LINES: usize = 100;
+
+/// Creates the history file in `dir` readable by the current user only, or
+/// checks it if it exists, and returns its path.
+///
+/// On Unix the file must be a regular file of the current user, not a
+/// symlink; one open to group or others is tightened to 0600 (said once). The
+/// line editor opens the path again later: the directory is private, so only
+/// the current user could swap the file meanwhile.
+fn history_file(dir: &std::path::Path) -> Result<PathBuf> {
+    crate::identity::ensure_private_dir(dir)?;
+    let path = dir.join(HISTORY_FILE);
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).append(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(&path).with_context(|| {
+        format!(
+            "cannot open chat history {} (it must be a regular file, not a symlink)",
+            path.display()
+        )
+    })?;
+    let meta = file.metadata()?;
+    ensure!(
+        meta.is_file(),
+        "chat history {} must be a regular file",
+        path.display()
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        ensure!(
+            meta.uid() == crate::identity::current_uid(),
+            "chat history {} belongs to another user; set IROH_TOOLBOX_HOME to a directory of your own",
+            path.display()
+        );
+        if meta.permissions().mode() & 0o077 != 0 {
+            let tightened = file
+                .set_permissions(std::fs::Permissions::from_mode(0o600))
+                .and_then(|()| file.metadata())
+                .is_ok_and(|meta| meta.permissions().mode() & 0o077 == 0);
+            if tightened {
+                note!(
+                    "{} was open to other users; its permissions are now 0600",
+                    path.display()
+                );
+            } else if crate::identity::modes_enforced(dir) {
+                bail!(
+                    "cannot restrict {}; run: chmod 600 {}",
+                    path.display(),
+                    path.display()
+                );
+            } else {
+                crate::identity::warn_unenforced_modes(dir);
+            }
+        }
+    }
+    Ok(path)
+}
+
 /// `--timestamps`, else `IROH_TOOLBOX_TIMESTAMPS`, else `auto`.
 fn timestamps_when(flag: Option<Timestamps>, env: Option<String>) -> Result<Timestamps> {
     if let Some(when) = flag {
@@ -1884,8 +2066,10 @@ enum Input {
     /// Lines read by `reedline` on its own thread, which blocks on the terminal.
     Editor {
         events: mpsc::Receiver<Result<InputEvent>>,
-        /// Makes the editor return and restore the terminal.
-        stop: Arc<AtomicBool>,
+        /// Opens `--auto-cmd` forms; its break signal pauses the editor.
+        forms: offer_form::Forms,
+        /// With the break signal, makes the editor return and restore the terminal.
+        ending: Arc<AtomicBool>,
         thread: std::thread::JoinHandle<()>,
         /// When the transfer progress was last printed.
         progress: Instant,
@@ -1905,15 +2089,15 @@ const COMPLETION_MENU: &str = "completion_menu";
 const EDITOR_POLL: Duration = Duration::from_millis(50);
 
 impl Input {
-    fn open(timestamps: bool, color: bool) -> Result<Self> {
+    fn open(timestamps: bool, color: bool, history_file: Option<&std::path::Path>) -> Result<Self> {
         if !interactive_terminal() {
             return Ok(Self::Lines {
                 stdin: BufReader::new(tokio::io::stdin()),
                 line: InputLine::default(),
             });
         }
-        let printer = ExternalPrinter::<String>::new(256);
-        let sender = printer.sender();
+        let (sender, lines) = std::sync::mpsc::sync_channel::<String>(256);
+        let output = offer_form::SharedOutput::new(lines);
         progress::attach_console(Box::new(move |text| {
             sender
                 .send(text.trim_end_matches('\n').to_owned())
@@ -1933,11 +2117,33 @@ impl Input {
             KeyCode::BackTab,
             ReedlineEvent::MenuPrevious,
         );
-        // Without a file, the history stays in memory: messages never reach the disk.
-        let history = FileBackedHistory::new(100).map_err(|error| anyhow::anyhow!("{error}"))?;
-        let stop = Arc::new(AtomicBool::new(false));
+        // Without a file, the history stays in memory: typed lines never reach the disk.
+        let in_memory =
+            || FileBackedHistory::new(HISTORY_LINES).map_err(|error| anyhow::anyhow!("{error}"));
+        let (history, saving) = match history_file {
+            None => (in_memory()?, false),
+            Some(path) => match FileBackedHistory::with_file(HISTORY_LINES, path.to_owned()) {
+                Ok(history) => (history, true),
+                Err(error) => {
+                    alert!(
+                        "cannot read chat history {}: {error}; this chat keeps its history in memory only",
+                        path.display()
+                    );
+                    (in_memory()?, false)
+                }
+            },
+        };
+        let wake = Arc::new(AtomicBool::new(false));
+        let ending = Arc::new(AtomicBool::new(false));
+        let (forms, controls) = std::sync::mpsc::channel();
+        let forms = offer_form::Forms {
+            tx: forms,
+            wake: wake.clone(),
+        };
         let mut editor = Reedline::create()
             .with_history(Box::new(history))
+            // Like shells: a line typed after a space stays out of the file.
+            .with_history_exclusion_prefix(saving.then(|| " ".to_owned()))
             .with_completer(Box::new(Completion))
             .with_menu(ReedlineMenu::EngineCompleter(Box::new(
                 ColumnarMenu::default().with_name(COMPLETION_MENU),
@@ -1945,16 +2151,30 @@ impl Input {
             .with_quick_completions(true)
             .with_partial_completions(true)
             .with_edit_mode(Box::new(Emacs::new(keybindings)))
-            .with_external_printer(printer)
+            .with_external_printer(output.clone())
             .with_ansi_colors(color)
-            .with_break_signal(stop.clone())
+            .with_break_signal(wake)
             .with_poll_interval(EDITOR_POLL);
         let (tx, events) = mpsc::channel(1);
+        let style = offer_form::Style { timestamps, color };
+        let stopping = ending.clone();
         let thread = std::thread::Builder::new()
             .name("chat input".to_owned())
             .spawn(move || {
+                let mut unsaved = false;
+                let mut form = None;
                 loop {
-                    let (event, last) = match editor.read_line(&ChatPrompt { timestamps }) {
+                    let signal = editor.read_line(&ChatPrompt { timestamps });
+                    // The editor writes its file only when dropped: write each
+                    // line at once, so a chat left with Ctrl+C keeps it too.
+                    if saving
+                        && matches!(signal, Ok(Signal::Success(_)))
+                        && let Err(error) = editor.sync_history()
+                        && !std::mem::replace(&mut unsaved, true)
+                    {
+                        alert!("cannot save chat history: {error}");
+                    }
+                    let (event, last) = match signal {
                         Ok(Signal::Success(line)) if line.len() > TEXT_LIMIT => (
                             Ok(InputEvent::Invalid(anyhow::anyhow!(
                                 "input exceeds 4096 bytes; nothing was sent"
@@ -1964,7 +2184,40 @@ impl Input {
                         Ok(Signal::Success(line)) => (Ok(InputEvent::Line(line)), false),
                         Ok(Signal::CtrlC(_)) => (Ok(InputEvent::Interrupted), true),
                         Ok(Signal::CtrlD) => (Ok(InputEvent::Eof), true),
-                        Ok(Signal::ExternalBreak(_)) => return,
+                        // The chat ends, or asks for a form: the editor keeps
+                        // the line being typed for its next read.
+                        Ok(Signal::ExternalBreak(_)) => {
+                            if stopping.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            form = offer_form::pending(&controls, form);
+                            let Some(id) = form.take() else { continue };
+                            match offer_form::run(
+                                id,
+                                &controls,
+                                &output,
+                                &stopping,
+                                style,
+                                EDITOR_POLL,
+                            ) {
+                                Ok(offer_form::Outcome::Command(line)) => {
+                                    (Ok(InputEvent::Line(line)), false)
+                                }
+                                Ok(offer_form::Outcome::Later) => {
+                                    note!("File offer kept; use /receive DESTINATION or /reject.");
+                                    continue;
+                                }
+                                Ok(offer_form::Outcome::Closed) => continue,
+                                Ok(offer_form::Outcome::Interrupted) => {
+                                    (Ok(InputEvent::Interrupted), true)
+                                }
+                                Ok(offer_form::Outcome::Ending) => {
+                                    output.print_rest();
+                                    return;
+                                }
+                                Err(error) => (Err(anyhow::Error::from(error)), true),
+                            }
+                        }
                         Ok(_) => continue,
                         Err(error) => (Err(anyhow::Error::from(error)), true),
                     };
@@ -1975,7 +2228,8 @@ impl Input {
             })?;
         Ok(Self::Editor {
             events,
-            stop,
+            forms,
+            ending,
             thread,
             progress: Instant::now(),
         })
@@ -1989,6 +2243,14 @@ impl Input {
                 Some(Err(error)) => InputEvent::Invalid(error),
             }),
             Self::Editor { events, .. } => events.recv().await.unwrap_or(Ok(InputEvent::Eof)),
+        }
+    }
+
+    /// Opens the forms of `--auto-cmd`; none without the line editor.
+    fn forms(&self) -> Option<offer_form::Forms> {
+        match self {
+            Self::Editor { forms, .. } => Some(forms.clone()),
+            Self::Lines { .. } => None,
         }
     }
 
@@ -2007,7 +2269,8 @@ impl Input {
     async fn close(self) {
         let Self::Editor {
             events,
-            stop,
+            forms,
+            ending,
             thread,
             ..
         } = self
@@ -2019,7 +2282,8 @@ impl Input {
         // The editor checks its stop signal before printing: let it show the
         // last messages first, such as why the chat ended.
         tokio::time::sleep(EDITOR_POLL * 3).await;
-        stop.store(true, Ordering::Relaxed);
+        ending.store(true, Ordering::Relaxed);
+        forms.wake.store(true, Ordering::Relaxed);
         let deadline = Instant::now() + Duration::from_secs(1);
         while !thread.is_finished() && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2074,13 +2338,14 @@ impl Completer for Completion {
     }
 }
 
-const COMPLETED_COMMANDS: [(&str, bool); 8] = [
+const COMPLETED_COMMANDS: [(&str, bool); 9] = [
     ("/send", true),
     ("/receive", true),
     ("/cancel", false),
     ("/confirm", false),
     ("/reject", false),
     ("/status", false),
+    ("/stats", false),
     ("/help", false),
     ("/quit", false),
 ];
@@ -2485,7 +2750,8 @@ mod tests {
     fn mistyped_commands_suggest_the_closest_one() {
         assert_eq!(closest_command("/received"), Some("/receive"));
         assert_eq!(closest_command("/receive*"), Some("/receive"));
-        assert_eq!(closest_command("/stat"), Some("/status"));
+        assert_eq!(closest_command("/stat"), Some("/stats"));
+        assert_eq!(closest_command("/statuss"), Some("/status"));
         assert_eq!(closest_command("/conf"), Some("/confirm"));
         assert_eq!(closest_command("/re"), None, "/receive or /reject");
         assert_eq!(closest_command("/xyzzy"), None);
@@ -2573,6 +2839,77 @@ mod tests {
         );
         let error = when(None, Some("sometimes")).unwrap_err();
         assert!(error.to_string().contains("auto, always or never"));
+    }
+
+    #[test]
+    fn history_is_off_unless_asked_and_the_flag_overrides_the_environment() {
+        let wanted = |flag, env: Option<&str>| history_wanted(flag, env.map(str::to_owned));
+        assert!(!wanted(None, None).unwrap());
+        assert!(!wanted(None, Some("")).unwrap());
+        assert!(wanted(None, Some("On")).unwrap());
+        assert!(!wanted(None, Some(" off ")).unwrap());
+        assert!(!wanted(Some(false), Some("on")).unwrap());
+        assert!(wanted(Some(true), Some("off")).unwrap());
+        let error = wanted(None, Some("yes")).unwrap_err();
+        assert!(error.to_string().contains("on or off"));
+    }
+
+    #[test]
+    fn history_flags_override_each_other_in_order() {
+        use clap::Parser;
+        let parse = |args: &[&str]| {
+            let cli = crate::cli::Cli::try_parse_from(
+                ["iroh-toolbox", "chat", "connect", "code:"]
+                    .iter()
+                    .chain(args),
+            )
+            .unwrap();
+            let crate::cli::Command::Chat {
+                command: Some(crate::cli::ChatCommand::Connect(options)),
+                ..
+            } = cli.command
+            else {
+                panic!("not chat connect");
+            };
+            (options.session.history, options.session.no_history)
+        };
+        assert_eq!(parse(&[]), (false, false));
+        assert_eq!(parse(&["--history"]), (true, false));
+        assert_eq!(parse(&["--history", "--no-history"]), (false, true));
+        assert_eq!(parse(&["--no-history", "--history"]), (true, false));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_history_file_is_private_and_never_a_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode =
+            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join("iroh-toolbox");
+
+        // Created private, in a private directory.
+        let path = history_file(&dir).unwrap();
+        assert_eq!(path, dir.join(HISTORY_FILE));
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(mode(&dir), 0o700);
+
+        // Existing lines are kept; a file open to others is tightened.
+        std::fs::write(&path, "salut\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if crate::identity::modes_enforced(&dir) {
+            history_file(&dir).unwrap();
+            assert_eq!(mode(&path), 0o600);
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "salut\n");
+
+        // A symlink is refused and its target left untouched.
+        let elsewhere = home.path().join("elsewhere");
+        std::fs::write(&elsewhere, "").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
+        let error = history_file(&dir).unwrap_err();
+        assert!(format!("{error:#}").contains("not a symlink"), "{error:#}");
     }
 
     #[test]

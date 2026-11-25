@@ -86,8 +86,8 @@ run = [
 ]
 
 [tasks."test:pty"]
-description = "Require IROH_TEST_RELAY_BINARY, Python and Unix PTYs; exercise the chat line editor and file replacement confirmation on real terminals"
-run = "cargo test --locked --test native_cli -- --ignored --exact --nocapture native_chat_line_editor_on_real_terminals native_code_prompt_hides_the_code_on_real_terminals native_machine_key_passphrase_on_real_terminals ports_replacement::native_replacement_confirmation_on_real_terminals"
+description = "Require IROH_TEST_RELAY_BINARY, Python and Unix PTYs; exercise the chat line editor, the --auto-cmd form and file replacement confirmation on real terminals"
+run = "cargo test --locked --test native_cli -- --ignored --exact --nocapture native_chat_line_editor_on_real_terminals native_chat_auto_cmd_form_on_real_terminals native_code_prompt_hides_the_code_on_real_terminals native_machine_key_passphrase_on_real_terminals ports_replacement::native_replacement_confirmation_on_real_terminals"
 
 [tasks."test:public-relay"]
 description = "Explicitly contact public iroh relays; verify default registration, forced-relay ping and chat/files"

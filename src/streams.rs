@@ -124,6 +124,7 @@ async fn accept_pipe(
         },
     )
     .await
+    .inspect(|(conn, _, _)| crate::stats::track(conn))
 }
 
 pub fn validate_address(value: &str, allow_zero: bool) -> Result<()> {
@@ -531,6 +532,7 @@ where
                         conn.close(network::BUSY.into(), b"the server is at its connection limit");
                         return Ok(());
                     };
+                    crate::stats::track(&conn);
                     serve(conn).await
                 });
             }

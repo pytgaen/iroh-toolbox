@@ -54,6 +54,7 @@ pub async fn serve(settings: &Settings, max_connections: u64, serve: Serve<'_>) 
                         conn.close(network::BUSY.into(), b"the server is at its connection limit");
                         return Ok(());
                     };
+                    crate::stats::track(&conn);
                     echo(conn, timeout).await
                 });
             }

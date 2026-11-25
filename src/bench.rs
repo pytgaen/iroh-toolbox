@@ -223,6 +223,7 @@ pub async fn serve(
                 }),
             )
             .await?;
+        crate::stats::track(&conn);
         // A benchmark serves one client: later ones learn why instead of timing out.
         let _busy = network::refuse_while_busy(&ep, busy_server);
         progress.phase("negotiating benchmark", 0);

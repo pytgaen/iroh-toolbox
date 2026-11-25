@@ -341,7 +341,7 @@ pub(crate) async fn accept_receiver(
     ep: &iroh::Endpoint,
     expected: iroh::EndpointId,
 ) -> Result<iroh::endpoint::Connection> {
-    network::accept_first(
+    let conn = network::accept_first(
         ep,
         network::HANDSHAKE_DEADLINE,
         "paired",
@@ -353,7 +353,9 @@ pub(crate) async fn accept_receiver(
             anyhow::bail!("not the paired receiver")
         },
     )
-    .await
+    .await?;
+    crate::stats::track(&conn);
+    Ok(conn)
 }
 
 /// Close of a reception that published its files.
@@ -646,6 +648,7 @@ impl Reception<'_> {
                 .map_err(failed)?
                 .context("cannot connect to peer; keep send running")
                 .map_err(failed)?;
+            crate::stats::track(&conn);
             self.connected = true;
             Some(conn)
         } else {

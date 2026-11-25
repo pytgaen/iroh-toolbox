@@ -250,6 +250,7 @@ another directory. It holds:
 | `name` | The name announced when pairing (`id rename`) |
 | `peers.toml`, `peers.lock` | The [peer book](peers.md#peer-book) and its lock |
 | `slots/` | One lock file per running slot |
+| `chat_history` | Only with `chat --history`: the last 100 lines typed in chat, mode 0600 (see [chat](../guides/chat.md#keep-what-you-type-across-chats)) |
 
 The identity file is a secret. Never sync it with a cloud drive or dotfiles
 repository, share it, copy it to another machine or commit it: anyone who has

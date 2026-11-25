@@ -22,6 +22,7 @@ use tokio::time::Instant;
 use crate::config::Settings;
 
 mod code;
+mod diagnostics;
 mod frame;
 mod handshake;
 mod record;

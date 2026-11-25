@@ -132,6 +132,15 @@ fn code_chat_through_private_relay_keeps_credentials_local() {
         std::fs::read(output.join("file")).unwrap(),
         b"through the relay"
     );
+    // Everything went through the relay, named without its token.
+    say(&mut b, "/stats");
+    b.until_error_line("Stats: sent ");
+    b.until_error_line("Route: relay (http://127.0.0.1:");
+    let relay_line = b.until_error_line("Relay: sent ");
+    assert!(
+        relay_line.contains("(100.0 %) via http://127.0.0.1:"),
+        "{relay_line}"
+    );
     say(&mut b, "/quit");
     a.wait(true);
     b.wait(true);

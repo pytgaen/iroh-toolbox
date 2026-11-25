@@ -167,6 +167,35 @@ See the [chat guide](../guides/chat.md) and
 | `waiting for another pairing or peers command to finish` | The peer book is locked by another `pair` (which holds it while the other machine answers) or `peers` command. It continues when that one ends; close forgotten `pair` terminals |
 | `unsafe or unreadable peer book …` | `peers.toml` is owned by someone else or writable by others: `chmod 600` it as the message says |
 
+## Both machines wait, then the pairing times out
+
+```text
+pairing timed out: no machine answered with this code; check the code, that the other command is still running, and that both machines run the same build (compare the Commit line of `iroh-toolbox --version`) (last attempt: no address published for this endpoint …)
+```
+
+The machine that typed the code never found the machine that created it.
+Possible causes, most likely first:
+
+- **Different builds on the two machines.** A build may derive the endpoint to
+  look for from the code differently, so the two machines never meet. Compare
+  the `Commit` line of `iroh-toolbox --version` on both: the version number
+  alone may not differ.
+- **`dns.iroh.link` is unreachable from one machine** (public relays). The
+  creator finds out first: `warning: this code's address is not visible on
+  dns.iroh.link; the other machine cannot find this machine until it is`.
+  Check that the machine can reach `https://dns.iroh.link`.
+- **A different `--relay` on one side.** Both machines must use the same relay,
+  or both the public ones.
+- **A wrong or already used code.** A code allows one attempt: create a new one
+  and type it again.
+
+With `-v`, both machines print the rendezvous endpoint (`pairing: looking for
+rendezvous endpoint …` on the joining machine, `pairing: rendezvous endpoint …
+registered` on the creating one): they must be identical. The joining machine
+also prints the reason of each failed attempt (`pairing: attempt N failed: …`),
+such as `no answer within 15s` or `no address published for this endpoint`
+followed by what the lookup reported (record not found, or DNS unreachable).
+
 ## Code prompt and local files
 
 | Message | Cause and action |
@@ -176,6 +205,8 @@ See the [chat guide](../guides/chat.md) and
 | `… it must belong to the current user and be private; run: chmod 600 PATH` | The `identity` file belongs to another user or others can read it. Fix the owner and mode as shown |
 | `… was open to other users; its permissions are now 0700` | The configuration directory was too open and was tightened once. Nothing to do |
 | `cannot restrict DIR; run: chmod 700 DIR` / `DIR belongs to another user; set IROH_TOOLBOX_HOME …` | The configuration directory is not yours. Fix it, or select a directory of your own with `IROH_TOOLBOX_HOME` |
+| `cannot open chat history PATH (it must be a regular file, not a symlink)` / `chat history PATH belongs to another user …` / `cannot restrict PATH; run: chmod 600 PATH` | `chat --history` refuses a `chat_history` that is a symlink or not yours, before connecting. Delete it or fix it as shown, or chat with `--no-history` |
+| `IROH_TOOLBOX_CHAT_HISTORY must be on or off` | Set the variable to `on` or `off`, or unset it |
 | `warning: the filesystem of DIR does not keep file permissions; only file ownership is checked there` | WSL `/mnt/c`, exFAT or some Docker mounts have no POSIX modes. Only the owner is checked: keep the configuration directory on a Unix filesystem |
 
 ## File reception fails

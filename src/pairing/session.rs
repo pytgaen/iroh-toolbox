@@ -12,7 +12,8 @@ use zeroize::Zeroizing;
 
 use super::{
     ALPN, CONFIRM_ATTEMPTS, Options, Pending,
-    code::{MAX_WORDS, MIN_WORDS, generate_code, parse_code, rendezvous_key},
+    code::{MAX_WORDS, MIN_WORDS, RENDEZVOUS_WORDS, generate_code, parse_code, rendezvous_key},
+    diagnostics::{Attempts, failure_reason, timed_out_message, timeout_reason, watch_publication},
     frame::{Channel, Frame},
     handshake::{
         Confirm, Numbers, Purpose, Terms, host_session, join_session, run_host, run_joiner,
@@ -141,15 +142,33 @@ async fn serve_one<T>(
         "waiting for the other machine (keep the code private)",
         None,
     );
+    let relay = ep
+        .addr()
+        .relay_urls()
+        .next()
+        .map(|url| format!(" on relay {}", settings.redact(url.to_string())))
+        .unwrap_or_default();
+    detail!(
+        "pairing: rendezvous endpoint {} registered{relay}",
+        ep.id().fmt_short()
+    );
     let result = timeout_at(deadline, async {
         // Connections that never send a Hello do not consume the code; the
         // first started key exchange does, whatever its outcome. Attempts run
         // concurrently under the short handshake deadline, so a silent
         // connection cannot delay the real joiner.
-        let (conn, channel, hello) =
-            network::accept_first(&ep, settings.timeout, "pairing", read_hello)
-                .await
-                .context("pairing endpoint closed")?;
+        // The DNS read-back only reports: it ends with the accept.
+        let accepted = tokio::select! {
+            accepted = network::accept_first(&ep, settings.timeout, "pairing", read_hello) => accepted,
+            never = async {
+                if network::public_relays(settings) {
+                    watch_publication(&ep).await
+                } else {
+                    std::future::pending().await
+                }
+            } => match never {},
+        };
+        let (conn, channel, hello) = accepted.context("pairing endpoint closed")?;
         let outcome = run(Arrival {
             conn: conn.clone(),
             local: ep.id(),
@@ -264,18 +283,25 @@ async fn join_with<T>(
     if let Some(relay) = &settings.relay {
         addr = addr.with_relay_url(relay.clone());
     }
+    detail!(
+        "pairing: looking for rendezvous endpoint {} (from the first {RENDEZVOUS_WORDS} words of the code)",
+        addr.id.fmt_short()
+    );
     progress.phase("pairing: looking for the other machine", None);
+    let mut attempts = Attempts::default();
     let conn = timeout_at(deadline, async {
         // The host may still be registering: retry until the deadline.
         let mut search = std::pin::pin!(async {
             loop {
-                match timeout(settings.timeout, ep.connect(addr.clone(), ALPN)).await {
+                let reason = match timeout(settings.timeout, ep.connect(addr.clone(), ALPN)).await {
                     Ok(Ok(conn)) => break conn,
-                    _ => {
-                        detail!("pairing: rendezvous not reachable yet; retrying");
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
+                    Ok(Err(error)) => failure_reason(&error),
+                    Err(_) => timeout_reason(settings.timeout),
+                };
+                if let Some(line) = attempts.record(settings.redact(reason)) {
+                    detail!("{line}");
                 }
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
         });
         tokio::select! {
@@ -290,7 +316,7 @@ async fn join_with<T>(
         }
     })
     .await
-    .map_err(|_| anyhow::anyhow!("pairing timed out: no machine answered with this code; check the code and that the other command is still running"))?;
+    .map_err(|_| anyhow::anyhow!(timed_out_message(attempts.last())))?;
     progress.phase("pairing: checking the code", None);
     let outcome = timeout_at(
         deadline,

@@ -441,9 +441,18 @@ the receiver's replacement prompt.
 
 Every line the tool writes to the terminal escapes control characters and
 newlines coming from remote text, in chat and elsewhere, so a peer cannot forge
-output or move the cursor. Remote text never executes slash commands. Chat keeps no history on disk; the interactive input history
-and unacknowledged messages stay in memory until the session ends. Terminal
-logs can still contain messages, private paths and the pairing code.
+output or move the cursor. Remote text never executes slash commands.
+
+By default chat writes nothing to disk: the interactive input history and
+unacknowledged messages stay in memory until the session ends. `--history` (or
+`IROH_TOOLBOX_CHAT_HISTORY=on`) keeps the last 100 lines typed locally in
+`chat_history`, in the private configuration directory: messages and commands
+with their paths, never the remote participant's text. The file is created with
+mode 0600; on Unix a symlink or a file of another user is refused, and a file
+open to other users is tightened to 0600. Anyone who can read that directory,
+or a backup of it, can read those lines. A line typed after a space is sent
+without it and not kept. Terminal logs can still contain messages, private paths
+and the pairing code.
 
 ## Summary of threats
 

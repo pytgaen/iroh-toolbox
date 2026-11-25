@@ -137,7 +137,8 @@ offers, progress and errors appear on stderr, each after a mark:
 | `✓` | A completed outcome: a verified reception, the peer's confirmation, a reconnection |
 
 A session has two participants, supports messages and file offers in either
-direction, and keeps no history on disk.
+direction, and writes nothing to disk unless you ask it to keep the
+[lines you type](#keep-what-you-type-across-chats).
 
 In an interactive terminal (stdin, stdout and stderr all on a terminal), a line
 editor keeps what you are typing intact while messages arrive above it:
@@ -171,9 +172,38 @@ you> /receive --f⇥ in⇥    →  you> /receive --force inbox/
 When several entries match, a second Tab shows them in columns. `/receive`
 completes directories only. A running transfer prints its progress every 10
 seconds, and `/status` shows it at once. Ctrl+D leaves like `/quit`; Ctrl+C
-leaves and exits with status 130. The input history stays in memory. When any
-of the three streams is redirected, lines are read and printed as plain text,
-for scripts.
+leaves and exits with status 130. Leading spaces are not sent, and a blank line
+sends nothing. When any of the three streams is redirected, lines are read and
+printed as plain text, for scripts.
+
+### Keep what you type across chats
+
+By default ↑ recalls only the lines of the current chat: they stay in memory and
+are gone when it ends. With `--history`, the last 100 lines you type are kept,
+and the next chat recalls them, whichever machine you talk to:
+
+```text
+$ iroh-toolbox chat connect peer:laptop --history
+you> ↑                      →  you> merci, bien reçu
+you>  mot de passe : 4821   # starts with a space: sent, but not kept
+```
+
+The `IROH_TOOLBOX_CHAT_HISTORY` environment variable sets a lasting default,
+`on` or `off`; `--history` and `--no-history` override it:
+
+```sh
+export IROH_TOOLBOX_CHAT_HISTORY=on
+iroh-toolbox chat serve --no-history    # this chat keeps nothing
+```
+
+The lines go to `chat_history` in the configuration directory
+([`IROH_TOOLBOX_HOME`](../reference/configuration.md)), readable by you only
+(mode 0600 on Unix). It holds what you type, messages and commands alike, with
+the paths of `/send` and `/receive`; never what the other participant writes.
+As in shells, a line that starts with a space is sent without the space and is
+not kept. Delete the file to forget everything. Several chats at once share the
+file without losing lines. A chat whose input is redirected reads no history and
+keeps none.
 
 Messages show the time they were received or typed. `--timestamps` chooses
 when; the `IROH_TOOLBOX_TIMESTAMPS` environment variable sets a lasting
@@ -263,6 +293,35 @@ you> /status
 · Transfer: receiving and verifying BLAKE3 42% (515.0 MiB/1.2 GiB)
 ```
 
+### Traffic and route
+
+`/stats` shows what the chat has exchanged since it started, its file
+transfers and reconnections included: bytes on the wire, split between the
+direct path and the relay, packet loss and route changes. The route is the
+chat connection's:
+
+```text
+you> /stats
+· Stats: sent 2.4 MiB, received 18.7 MiB on the wire in 4 min 12 s
+· Route: direct (UDP 192.168.1.20:54012), rtt 3.1 ms
+· Direct: sent 2.3 MiB, received 18.6 MiB (99.6 %)
+· Relay: sent 41.0 KiB, received 52.0 KiB (0.4 %) via https://euw1-1.relay.n0.iroh.link./
+· Loss: 12 of 16880 packets (0.07 %)
+· Route changes: relay → direct after 1.8 s
+· Connections: 3, 1 open
+```
+
+The chat also tells when its connection changes route, typically once hole
+punching succeeds:
+
+```text
+· Route: now direct (UDP), 1.8 s after connecting
+```
+
+`chat serve --stats` and `chat connect --stats` print the same report when the
+chat ends, and `--stats-json` prints it as JSON; see
+[report a session's traffic](diagnostics.md#report-a-sessions-traffic).
+
 ## Offer and receive a file
 
 In A's chat, enter:
@@ -284,6 +343,8 @@ participant only. The result is `reception/photos/` for a directory, or
 checked with BLAKE3 and staged before publication. Existing names are replaced
 only after confirmation, as described below.
 Both participants can continue chatting during preparation and transfer.
+To answer offers from a form instead of typing `/receive`, start the chat with
+[`--auto-cmd`](#answer-offers-from-a-form).
 
 Paths are relative to the local process directory and may contain spaces:
 `/send "./holiday photos"` and `/receive "./received photos"`. Quotes around the
@@ -303,6 +364,7 @@ and `~` are not expanded.
 | `/confirm` | Approve the replacements and merges listed before a reception. |
 | `/reject` | Reject the incoming offer, stop its reception, or decline a pending replacement confirmation. |
 | `/status` | Show the connection, file offers and unacknowledged messages. |
+| `/stats` | Show the bytes exchanged, direct or through a relay, the route, packet loss and route changes. |
 | `/help` | Show the commands and path syntax. |
 | `/quit` | End the conversation and cancel pending work. |
 | `//text` | Send a message that begins with `/`. |
@@ -352,3 +414,47 @@ A disconnected peer cannot supply this confirmation. EOF on stdin, Ctrl+D or
 claim successful publication. Chat transfers cannot be resumed, and abrupt
 process kills can leave temporary stores. Empty directories are omitted; an entirely
 empty directory cannot be sent. See the [file limits](files.md) for details.
+
+## Answer offers from a form
+
+With `--auto-cmd`, each offer opens a form below the chat instead of asking for
+`/receive`. The destination and the `--force` box are filled in; change them,
+then accept or refuse:
+
+```sh
+iroh-toolbox chat connect peer:nas --auto-cmd
+```
+
+```text
+14:03 · nas offers photos — 1.2 GiB, 312 files.
+┌ /receive [.                       ]  [ ] --force
+└ [ accept ]  [ refuse ]   Tab: next · Space: tick · Enter: choose · Esc: later
+```
+
+| Key | Action |
+| --- | --- |
+| `Tab`, `Shift+Tab` | Move between the destination, the box and the buttons. |
+| Typing, `Backspace`, `←` `→` | Edit the destination, `.` by default. |
+| `Space` | Tick or untick `--force`, which starts unticked; on a button, press it. |
+| `Enter` | On a button, press it; elsewhere, move to the next item. |
+| `Esc` | Close the form; the offer stays pending for `/receive` or `/reject`. |
+| `Ctrl+C` | Leave the chat, with status 130. |
+
+`accept` runs `/receive DESTINATION`, or `/receive --force DESTINATION` with
+the box ticked, and shows it as a line you typed: `you> /receive .`. `refuse`
+runs `/reject`. Without `--force`, names that already exist in the destination
+still wait for `/confirm` or `/reject`. A destination that is neither a folder
+nor a new name in one keeps the form open with the reason:
+
+```text
+  ! /home/me/inbx: no such folder
+```
+
+Enter moves on from the destination and the box, so a line sent at the moment
+the form appears accepts nothing. Messages that arrive meanwhile show above the
+form, and the line you were typing comes back when it closes. The form closes
+by itself when the offer is withdrawn, expires or is lost with the connection.
+Offers over `--max-bytes` are still rejected without a form.
+
+`--auto-cmd` needs an interactive terminal (stdin, stdout and stderr): with
+any of them redirected, the chat refuses to start.

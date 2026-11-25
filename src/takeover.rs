@@ -205,7 +205,7 @@ async fn reconnections(ep: &Endpoint, watch: &Weak<Watch>) {
 /// Reads the slot's DNS record back once the endpoint is online, then at
 /// iroh's republication interval.
 async fn records(ep: &Endpoint, watch: &Weak<Watch>) {
-    let Ok(lookup) = PkarrResolver::n0_dns().into_address_lookup(ep) else {
+    let Some(lookup) = dns_lookup(ep) else {
         return;
     };
     let mut differs = false;
@@ -235,9 +235,15 @@ async fn records(ep: &Endpoint, watch: &Weak<Watch>) {
     }
 }
 
-/// Whether the slot's record is this endpoint's; `None` when it cannot tell
-/// (no relay connection, no record, lookup failure).
-async fn check(lookup: &impl AddressLookup, ep: &Endpoint) -> Option<bool> {
+/// A reader of `ep`'s own record on n0's DNS.
+pub(crate) fn dns_lookup(ep: &Endpoint) -> Option<impl AddressLookup + use<'_>> {
+    PkarrResolver::n0_dns().into_address_lookup(ep).ok()
+}
+
+/// Whether the endpoint's record is its own; `None` when it cannot tell
+/// (no relay connection, no record, lookup failure). Also used by pairing
+/// codes to see whether their rendezvous record is published.
+pub(crate) async fn check(lookup: &impl AddressLookup, ep: &Endpoint) -> Option<bool> {
     let ours = ep.addr();
     // Without a relay connection, the record may lag behind.
     ours.relay_urls().next()?;
