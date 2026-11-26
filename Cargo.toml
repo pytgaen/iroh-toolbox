@@ -14,6 +14,8 @@ blake3 = "1"
 chacha20poly1305 = "0.11"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
+# Already in the dependency tree (reedline): the form of `chat --auto-cmd`.
+crossterm = "0.29"
 curve25519-dalek = "5"
 getrandom = "0.4"
 hex = "0.4"
@@ -44,6 +46,8 @@ toml = "1"
 # status that iroh only logs: another endpoint took a slot's relay registration.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
+# Already in the dependency tree (reedline): the form's columns.
+unicode-width = "0.2"
 url = "2"
 walkdir = "2"
 zeroize = { version = "1", features = ["serde"] }

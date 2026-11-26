@@ -294,6 +294,7 @@ pub async fn inbox(settings: &Settings, options: InboxOptions<'_>) -> Result<()>
                         return;
                     };
                     drop(handshaking);
+                    crate::stats::track(&conn);
                     if let Err(error) = inbox.welcome(&conn, handshake).await {
                         detail!("inbox: {error:#}");
                     }
@@ -703,6 +704,7 @@ pub async fn offer(settings: &Settings, options: OfferOptions<'_>) -> Result<()>
                         return;
                     };
                     drop(handshaking);
+                    crate::stats::track(&conn);
                     if let Err(error) = offering.serve(&conn, handshake).await {
                         detail!("send: {error:#}");
                     }

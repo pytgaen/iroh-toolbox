@@ -395,10 +395,12 @@ pub async fn connect(
     alpn: &[u8],
     settings: &Settings,
 ) -> Result<Connection> {
-    tokio::time::timeout(settings.timeout, ep.connect(target(value, settings)?, alpn))
+    let conn = tokio::time::timeout(settings.timeout, ep.connect(target(value, settings)?, alpn))
         .await
         .context("peer connection timed out; keep the remote command running, copy its current ticket and check relay configuration on both machines")?
-        .context("cannot connect to peer; keep the matching remote command running and copy its current ticket")
+        .context("cannot connect to peer; keep the matching remote command running and copy its current ticket")?;
+    crate::stats::track(&conn);
+    Ok(conn)
 }
 
 /// Time an unauthenticated connection has to finish its handshake. Short and
@@ -719,6 +721,7 @@ where
                         }
                         () = handshaking.evicted() => anyhow::bail!("dropped to make room for a newer connection"),
                     };
+                    crate::stats::watch(&conn);
                     tokio::select! {
                         result = tokio::time::timeout_at(end, admit(conn.clone())) => {
                             result.context("peer handshake timed out")?

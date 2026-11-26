@@ -132,6 +132,9 @@ it is rewritten in place and stays on screen when the transfer ends. Redirected
 stderr records each step once. The server reports its steps too.
 
 Global `-v` adds internal steps such as endpoint registration and negotiation.
+For code pairing it also shows the rendezvous endpoint on both machines (they
+must be identical) and the reason of each failed attempt to find it; see
+[both machines wait, then the pairing times out](../reference/troubleshooting.md#both-machines-wait-then-the-pairing-times-out).
 `-vv` prints every update as its own line, once per second, including while an
 operation is waiting on the network.
 
@@ -146,6 +149,69 @@ throughput through the toolbox, including its native Rust processing.
 The server serves one benchmark and exits. It accepts up to 1 GiB per direction
 (`bench serve --max-bytes N`). The total benchmark timeout defaults to 60 seconds;
 set `--transfer-timeout SECONDS` on either command to change its timeout.
+
+## Report a session's traffic
+
+Commands that connect to a peer (`send`, `receive`, `chat`, `pipe`, `tunnel`,
+`ping` and `bench`) report their traffic when they end, with `--stats`:
+
+```sh
+iroh-toolbox pipe connect peer:nas --stats < backup.tar
+```
+
+```text
+Stats: sent 4.1 GiB, received 3.2 MiB on the wire in 41 s
+  route: direct (UDP 192.168.1.20:54012), rtt 3.1 ms
+  direct: sent 4.1 GiB, received 3.1 MiB (99.9 %)
+  relay: sent 41.0 KiB, received 52.0 KiB (0.1 %) via https://euw1-1.relay.n0.iroh.link./
+  loss: 12 of 3051877 packets (0.00 %)
+  route changes: relay → direct after 1.8 s
+```
+
+- **sent / received** count the bytes on the wire, QUIC encryption,
+  acknowledgements and retransmissions included: a little more than the data
+  itself.
+- **route** is the path in use at the end: `direct` (UDP between the machines,
+  with the peer's address) or `relay` (WebSocket/TCP through the relay named),
+  with QUIC's round-trip estimate.
+- **direct** and **relay** split the bytes by the path that carried them, with
+  their share of the total. A connection usually starts through the relay and
+  moves to a direct path once hole punching succeeds.
+- **loss** counts the QUIC packets declared lost, which QUIC sent again.
+- **route changes** lists each switch between direct and relay, timed from the
+  start of its connection.
+
+Counting covers the connections that carry the command's data, from their
+start: the pairing that a code needs and connections the command refuses are
+not counted. A command that uses several connections (a chat that
+reconnected, a tunnel) adds them up and ends with `connections: 3, 0 open`.
+
+`--stats-json` writes the same report as one JSON object on one line:
+
+```sh
+iroh-toolbox receive code:… --stats-json
+```
+
+```json
+{"schema":1,"scope":"session","command":"receive","duration_ms":41023,"connections":1,"open":0,"sent_bytes":3355443,"received_bytes":4402341478,"sent_packets":3051877,"lost_packets":12,"route":"direct","remote_addr":"192.168.1.20:54012","rtt_ms":3.1,"routes":{"direct":{"sent_bytes":3302195,"received_bytes":4402288230},"relay":{"sent_bytes":53248,"received_bytes":53248,"relay_urls":["https://euw1-1.relay.n0.iroh.link./"]},"other":{"sent_bytes":0,"received_bytes":0}},"route_changes":[{"at_ms":1800,"from":"relay","to":"direct"}],"more_route_changes":0}
+```
+
+The two options exclude each other. Both write to stderr: stdout keeps the
+data of `pipe` and the results of `ping --json` and `bench --json`. The options
+go anywhere after the command name, as in `ping --stats serve` or
+`ping serve --stats`.
+
+Servers and tunnels (`ping serve`, `tunnel … serve`, `tunnel … connect`,
+`receive --inbox` without `--once`, `send --share`) also write a line, or a JSON
+object with `"scope":"connection"`, each time a connection closes. The peer is
+named by the short ID of its endpoint:
+
+```text
+Stats: connection from 3f2a1b9c0d closed after 8.2 s: sent 12.0 KiB, received 4.1 MiB, direct 100.0 %, 0 lost packets
+```
+
+They report the total when stopped with Ctrl+C. In a chat, `/stats` shows the
+same report at any time; see [traffic and route](chat.md#traffic-and-route).
 
 ## Inspect a ticket offline
 

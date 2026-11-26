@@ -698,6 +698,27 @@ fn native_chat_timestamps_reject_invalid_values_before_network_use() {
     assert!(invalid.errors().contains("auto, always or never"));
 }
 
+#[test]
+fn native_chat_auto_cmd_needs_a_terminal_before_network_use() {
+    for role in ["serve", "connect"] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_iroh-toolbox"));
+        command.args(["--direct-only", "chat", role]);
+        if role == "connect" {
+            command.arg("peer:nas");
+        }
+        command.arg("--auto-cmd");
+        let mut refused = Peer::start(command);
+        refused.wait(false);
+        assert!(
+            refused
+                .errors()
+                .contains("--auto-cmd needs an interactive terminal"),
+            "{}",
+            refused.errors()
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 #[ignore = "requires an official iroh-relay binary, Python and Unix PTYs; run explicitly for the interactive chat line editor"]
@@ -708,6 +729,29 @@ fn native_chat_line_editor_on_real_terminals() {
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/support/chat_editor.py"
+        ))
+        .arg(env!("CARGO_BIN_EXE_iroh-toolbox"))
+        .arg(&relay.url)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires an official iroh-relay binary, Python and Unix PTYs; run mise run test:pty"]
+fn native_chat_auto_cmd_form_on_real_terminals() {
+    // Chats meet by code, so the terminals need a relay.
+    let relay = LocalRelay::start(None);
+    let result = Command::new("python3")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/chat_auto_cmd.py"
         ))
         .arg(env!("CARGO_BIN_EXE_iroh-toolbox"))
         .arg(&relay.url)
@@ -856,6 +900,61 @@ fn native_pipe_raw_payload_and_half_close() {
         errors.contains("iroh-toolbox --direct-only pipe connect peer:nas --addr "),
         "{errors}"
     );
+}
+
+#[test]
+fn native_pipe_reports_its_traffic_with_stats_options() {
+    let pair = slots::Pair::direct();
+    let mut server = pair.serve(&[
+        "pipe",
+        "serve",
+        "--allow",
+        "all",
+        "--recv-only",
+        "--stats-json",
+    ]);
+    let mut client = pair.connect(&server, &["pipe", "connect", "peer:nas", "--stats"]);
+    let data: Vec<u8> = (0..262144).map(|v| (v % 251) as u8).collect();
+    client.input(&data);
+    assert!(client.wait(true).is_empty());
+    assert_eq!(server.wait(true), data);
+    // Bytes on the wire include QUIC: at least the payload in its direction.
+    let errors = client.errors();
+    let header = errors
+        .lines()
+        .find(|line| line.starts_with("Stats: sent "))
+        .unwrap_or_else(|| panic!("{errors}"));
+    assert!(header.contains(" on the wire in "), "{errors}");
+    assert!(errors.contains("\n  route: direct (UDP "), "{errors}");
+    assert!(errors.contains("  direct: sent "), "{errors}");
+    assert!(errors.contains("  loss: "), "{errors}");
+    let errors = server.errors();
+    let last = errors.lines().last().unwrap();
+    let stats: serde_json::Value =
+        serde_json::from_str(last).unwrap_or_else(|_| panic!("{errors}"));
+    assert_eq!(stats["schema"], 1);
+    assert_eq!(stats["scope"], "session");
+    assert_eq!(stats["command"], "pipe serve");
+    assert_eq!(stats["connections"], 1);
+    assert_eq!(stats["route"], "direct");
+    // Packets off any path (NAT traversal probes) count in the total only.
+    let direct = stats["routes"]["direct"]["received_bytes"]
+        .as_u64()
+        .unwrap();
+    assert!(direct >= data.len() as u64, "{stats}");
+    assert!(
+        stats["received_bytes"].as_u64().unwrap() >= direct,
+        "{stats}"
+    );
+    assert_eq!(stats["routes"]["relay"]["received_bytes"], 0, "{stats}");
+    // Without the options, nothing is reported.
+    let mut server = pair.serve(&["pipe", "serve", "--allow", "all", "--recv-only"]);
+    let mut client = pair.connect(&server, &["pipe", "connect", "peer:nas"]);
+    client.input(b"quiet");
+    client.wait(true);
+    assert_eq!(server.wait(true), b"quiet");
+    assert!(!client.errors().contains("Stats:"), "{}", client.errors());
+    assert!(!server.errors().contains("schema"), "{}", server.errors());
 }
 
 #[test]

@@ -70,6 +70,11 @@ fn a_peers_only_chat_admits_one_paired_machine() {
     );
     say(&mut client, "hello over the slot");
     assert_eq!(server.line(false), "laptop> hello over the slot");
+    // Leading spaces (which keep a line out of the history file) are dropped,
+    // and a blank line sends nothing.
+    say(&mut client, "   ");
+    say(&mut client, "  after a space");
+    assert_eq!(server.line(false), "laptop> after a space");
     // File offers in both directions, served only to the participant.
     say(&mut client, &format!("/send \"{}\"", source.display()));
     server.until_error_line("laptop offers");
@@ -96,6 +101,13 @@ fn a_peers_only_chat_admits_one_paired_machine() {
     client.until_error_line("Reconnected.");
     say(&mut client, "/status");
     client.until_error_line("Peer: admitted by paired machine nas");
+    // The traffic counts every connection of the chat, reconnections included.
+    say(&mut client, "/stats");
+    client.until_error_line("Stats: sent ");
+    client.until_error_line("Route: direct (UDP ");
+    client.until_error_line("Direct: sent ");
+    client.until_error_line("Loss: ");
+    client.until_error_line("Connections: ");
     // A removed machine keeps its open session but cannot reconnect.
     pair.nas.run(&["peers", "rm", "laptop"]);
     say(&mut client, "still open after peers rm");

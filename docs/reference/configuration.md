@@ -6,8 +6,9 @@
 | `IROH_TOOLBOX_TOKEN` | Relay access token | No token |
 | `IROH_TOOLBOX_CONFIG` | Path to a TOML file | No file |
 | `IROH_TOOLBOX_TIMEOUT` | Connection timeout in seconds | `15` |
-| `IROH_TOOLBOX_HOME` | Directory of the machine identity, name and peer book (`identity`, `peers.toml`): a secret, never to be synced or shared. Mode 0700 on Unix | Per-user configuration directory |
+| `IROH_TOOLBOX_HOME` | Directory of the machine identity, name and peer book (`identity`, `peers.toml`), and of the chat history with `chat --history` (`chat_history`): a secret, never to be synced or shared. Mode 0700 on Unix | Per-user configuration directory |
 | `IROH_TOOLBOX_TIMESTAMPS` | When chat messages show their time: `auto`, `always` or `never` | `auto` (interactive terminal only) |
+| `IROH_TOOLBOX_CHAT_HISTORY` | Keep the lines typed in chat (↑) across chats, in `chat_history` under `IROH_TOOLBOX_HOME`: `on` or `off` | `off` (memory only) |
 
 To use a file instead of relay environment variables:
 
@@ -40,6 +41,7 @@ Place global options **before** the command. Precedence, highest first:
 | File | `--config` → `IROH_TOOLBOX_CONFIG` |
 | Timeout | `--timeout` → `IROH_TOOLBOX_TIMEOUT` → 15 seconds |
 | Chat timestamps | `chat --timestamps` → `IROH_TOOLBOX_TIMESTAMPS` → `auto` |
+| Chat history | `chat --history`/`--no-history` → `IROH_TOOLBOX_CHAT_HISTORY` → off |
 
 Code pairing (`send`, `chat`, `pair`) needs no extra configuration: the machines
 meet through the selected relays (public by default, or the same `--relay` on

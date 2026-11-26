@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use zeroize::Zeroizing;
 
 /// Words that locate the rendezvous endpoint; the rest form the SPAKE2 password.
-const RENDEZVOUS_WORDS: usize = 3;
+pub(super) const RENDEZVOUS_WORDS: usize = 3;
 pub const MIN_WORDS: usize = 6;
 pub(super) const MAX_WORDS: usize = 32;
 /// EFF large wordlist (CC BY 3.0), unmodified; hyphenated entries are skipped.

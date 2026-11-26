@@ -17,6 +17,7 @@ mod peers;
 mod ping;
 mod publication;
 mod slot;
+mod stats;
 mod streams;
 mod takeover;
 mod target;
@@ -62,6 +63,9 @@ async fn main() {
         }
         return;
     }
+    if let Some((format, command, per_connection)) = stats_reporting(&cli.command) {
+        stats::configure(format, command, per_connection);
+    }
     let settings = match config::Settings::load(&cli.options) {
         Ok(settings) => settings,
         Err(error) => {
@@ -79,16 +83,28 @@ async fn main() {
                 break;
             }
         }
+        // Counted while the command's connections are still open.
+        stats::wanted().then(stats::snapshot)
     };
     let result = tokio::select! {
-        result = run(cli.command, &settings) => Some(result),
-        _ = interrupted => None,
+        result = run(cli.command, &settings) => Ok(result),
+        traffic = interrupted => Err(traffic),
     };
-    let Some(result) = result else {
-        target::restore_terminal();
-        progress::keep_status();
-        std::process::exit(130);
+    let result = match result {
+        Ok(result) => result,
+        Err(traffic) => {
+            target::restore_terminal();
+            if let Some(traffic) = traffic {
+                stats::report(&traffic);
+            }
+            progress::keep_status();
+            std::process::exit(130);
+        }
     };
+    if stats::wanted() {
+        stats::settle(std::time::Duration::from_secs(1)).await;
+        stats::report(&stats::snapshot());
+    }
     if let Err(error) = result {
         // Ctrl+C handled by an open chat.
         if error.is::<chat::Interrupted>() {
@@ -103,6 +119,55 @@ async fn main() {
     // an idle console reader when leaving a stdio command.
     progress::keep_status();
     std::process::exit(0);
+}
+
+/// How `--stats` or `--stats-json` reports the command: its name, and
+/// whether each closed connection gets its own line (servers and tunnels).
+fn stats_reporting(command: &Command) -> Option<(stats::Format, &'static str, bool)> {
+    let (options, name, per_connection) = match command {
+        Command::Send { stats, share, .. } => (stats, "send", *share),
+        Command::Receive {
+            stats, inbox, once, ..
+        } => (stats, "receive", *inbox && !*once),
+        Command::Chat {
+            command: Some(ChatCommand::Serve(options)),
+            ..
+        } => (&options.session.stats, "chat serve", false),
+        Command::Chat {
+            command: Some(ChatCommand::Connect(options)),
+            ..
+        } => (&options.session.stats, "chat connect", false),
+        Command::Pipe { command, stats } => match command {
+            PipeCommand::Serve { .. } => (stats, "pipe serve", false),
+            PipeCommand::Connect { .. } => (stats, "pipe connect", false),
+        },
+        Command::Tunnel { command, stats } => match command {
+            TunnelCommand::Tcp {
+                command: TcpCommand::Serve { .. },
+            } => (stats, "tunnel tcp serve", true),
+            TunnelCommand::Tcp {
+                command: TcpCommand::Connect { .. },
+            } => (stats, "tunnel tcp connect", true),
+            TunnelCommand::Http {
+                command: HttpCommand::Serve { .. },
+            } => (stats, "tunnel http serve", true),
+            TunnelCommand::Http {
+                command: HttpCommand::Connect { .. },
+            } => (stats, "tunnel http connect", true),
+        },
+        Command::Ping { command, stats } => match command {
+            PingCommand::Serve { .. } => (stats, "ping serve", true),
+            PingCommand::Connect { .. } => (stats, "ping connect", false),
+        },
+        Command::Bench { command, stats } => match command {
+            BenchCommand::Serve { .. } => (stats, "bench serve", false),
+            BenchCommand::Connect { .. } => (stats, "bench connect", false),
+        },
+        _ => return None,
+    };
+    options
+        .format()
+        .map(|format| (format, name, per_connection))
 }
 
 fn peer_names(book: &peers::PeerBook) -> String {
@@ -306,6 +371,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                     allow,
                     port,
                 },
+            ..
         } => {
             let serve = optional_slot(&slot, port, peers_only, &allow);
             ping::serve(settings, max_connections, serve).await
@@ -319,6 +385,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                     interval,
                     json,
                 },
+            ..
         } => ping::connect(settings, &target, &addr, count, interval, json).await,
         Command::Bench {
             command:
@@ -331,6 +398,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                     allow,
                     port,
                 },
+            ..
         } => {
             bench::serve(
                 settings,
@@ -352,6 +420,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                     json,
                     no_progress,
                 },
+            ..
         } => {
             bench::connect(
                 settings,
@@ -568,6 +637,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                     allow,
                     port,
                 },
+            ..
         } => {
             let serve = slot::Serve {
                 slot: Some(&slot),
@@ -594,6 +664,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                     addr,
                     recv_only,
                 },
+            ..
         } => {
             streams::pipe(
                 settings,
@@ -614,6 +685,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                             port,
                         },
                 },
+            ..
         } => {
             let serve = slot::Serve {
                 slot: Some(&slot),
@@ -628,6 +700,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                 TunnelCommand::Tcp {
                     command: TcpCommand::Connect { target, addr, bind },
                 },
+            ..
         } => streams::tunnel_connect(settings, &target, &bind, &addr).await,
         Command::Tunnel {
             command:
@@ -643,6 +716,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                             port,
                         },
                 },
+            ..
         } => {
             // A wrong folder is reported before the peer book is read.
             let folder = web::Site::open(&path, site, hidden)?;
@@ -659,6 +733,7 @@ async fn run(command: Command, settings: &config::Settings) -> Result<()> {
                 TunnelCommand::Http {
                     command: HttpCommand::Connect { target, addr, bind },
                 },
+            ..
         } => streams::http_connect(settings, &target, &bind, &addr).await,
         Command::Ticket { .. } | Command::Id { .. } | Command::Peers { .. } => {
             unreachable!("offline command handled before configuration")

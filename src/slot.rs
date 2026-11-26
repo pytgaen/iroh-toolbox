@@ -711,6 +711,7 @@ where
             }
             () = handshaking.evicted() => anyhow::bail!("dropped to make room for a newer connection"),
         };
+        crate::stats::watch(&conn);
         let handshake = network::with_hello(marker, async {
             tokio::time::timeout_at(end, authenticate(conn.clone()))
                 .await
@@ -777,7 +778,7 @@ pub async fn connect_stream(
     }
     // The server says whether it needs this machine's key; paired machines have one.
     let identity = Some(Identity::load_or_create()?.0);
-    connect_addr(
+    let connected = connect_addr(
         ep,
         addr,
         remote,
@@ -785,7 +786,9 @@ pub async fn connect_stream(
         settings.timeout,
         identity.as_ref(),
     )
-    .await
+    .await?;
+    crate::stats::track(&connected.0);
+    Ok(connected)
 }
 
 /// Handshakes one client process runs at once toward the same slot endpoint.
@@ -950,6 +953,7 @@ async fn connect_once(
         }
         Ok(Ok(conn)) => conn,
     };
+    crate::stats::watch(&conn);
     // Set once the server proved the machine key: only then do its refusals count.
     let proven = std::sync::atomic::AtomicBool::new(false);
     let verified = tokio::time::timeout(timeout, async {
