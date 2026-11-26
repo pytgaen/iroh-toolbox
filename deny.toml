@@ -1,5 +1,9 @@
 [advisories]
-ignore = []
+ignore = [
+  # Informational: no known flaw and no patched version. chrono shows chat
+  # times and dates; replace it (jiff) with the iroh 1.5 update.
+  { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no known flaw; replacement planned with iroh 1.5" },
+]
 unmaintained = "workspace"
 yanked = "deny"
 
